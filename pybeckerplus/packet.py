@@ -1,7 +1,10 @@
 import re
 import struct
+import logging
 from .constants import Action, STX, ETX
 from .exceptions import BeckerParseError
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def hex_to_bytes(hex_str: str) -> bytes:
@@ -40,6 +43,12 @@ def build_action_packet(mac: str, action: Action) -> str:
     # 07010118 + MAC(16) + 01013400000000000000 + CMD(2) + 0000000501
     return f"07010118{mac}01013400000000000000{action.value}0000000501"
 
+def build_global_action_packet(action: Action, cnt: int) -> str:
+    """Section 2.1: Action Commands (Global)."""
+    cnt_hex = format_cnt(cnt)
+    # 0709011a + 0000000000000000 + 01013400000000002000 + CMD(2) + 000000 + CNT(4) + 0501
+    return f"0709011A000000000000000001013400000000002000{action.value}000000{cnt_hex}0501"
+
 def build_moveto_packet(mac: str, percentage: float, cnt: int) -> str:
     """Section 2.2: MoveTo Command (Direct)."""
     mac = format_mac(mac)
@@ -48,16 +57,12 @@ def build_moveto_packet(mac: str, percentage: float, cnt: int) -> str:
     # 0701011a + MAC(16) + 010134000000005340000000 + POS(4) + CNT(4) + 0501
     return f"0701011A{mac}010134000000005340000000{pos_hex}{cnt_hex}0501"
 
-
-# Strict Protocol Patterns (Hex String Format)
-PATTERNS = {
-    "status": re.compile(r"^0700011A(?P<mac>.{16}).{14}80.{4}(?P<status>.{4})(?P<pos>.{4})(?P<cnt>.{4})0001$", re.IGNORECASE),
-    "unsolicited": re.compile(r"^07000126(?P<mac>.{16}).{14}52.{4}(?P<status>.{4})(?P<pos>.{4}).{32}$", re.IGNORECASE),
-    "info": re.compile(r"^0700012B(?P<mac>.{16}).{14}51.{18}(?P<sn>.{10}).{2}(?P<fw>.{6}).{10}(?P<cnt>.{4}).{4}$", re.IGNORECASE),
-    "name": re.compile(r"^07000130(?P<mac>.{16}).{14}62(?P<name>.{64})$", re.IGNORECASE),
-    "stick_info": re.compile(r"^07270111(?P<mac>.{16})(?P<install>.{8}).{10}$", re.IGNORECASE),
-    "stick_fw": re.compile(r"^072E010C.{16}(?P<fw>.{6}).{2}$", re.IGNORECASE),
-}
+def build_global_moveto_packet(percentage: float, cnt: int) -> str:
+    """Section 2.2: MoveTo Command (Global)."""
+    pos_hex = format_pos(percentage)
+    cnt_hex = format_cnt(cnt)
+    # 0709011a + 0000000000000000 + 010134000000005340000000 + POS(4) + CNT(4) + 0501
+    return f"0709011A0000000000000000010134000000005340000000{pos_hex}{cnt_hex}0501"
 
 def build_status_request(mac: str, cnt: int) -> str:
     """Section 3.1: Status & Position Request (Direct)."""
@@ -87,10 +92,26 @@ def build_get_name_packet(mac: str) -> str:
 def build_set_name_packet(mac: str, name: str) -> str:
     """Section 3.4.2: Set Device Name (UTF-8, hex encoded, 32-byte padded)."""
     mac = format_mac(mac)
-    name_bytes = name.encode("utf-8")[:32]
+    name_bytes = name.encode("utf-8")
+    if len(name_bytes) > 32:
+        _LOGGER.warning(
+            "Device name '%s' is too long (%d bytes after UTF-8 encoding) and will be truncated to 32 bytes.",
+            name, len(name_bytes)
+        )
+        name_bytes = name_bytes[:32]
     # Pad to 32 bytes (64 hex chars)
     name_hex = name_bytes.hex().upper().ljust(64, '0')
     return f"07010130{mac}8001340000000061{name_hex}"
+
+
+# Strict Protocol Patterns (Hex String Format)
+PATTERNS = {
+    "status": re.compile(r"^0700011A(?P<mac>.{16}).{14}80.{4}(?P<status>.{4})(?P<pos>.{4})(?P<cnt>.{4}).{4}$", re.IGNORECASE),
+    "unsolicited": re.compile(r"^07000126(?P<mac>.{16}).{14}52.{4}(?P<status>.{4})(?P<pos>.{4}).{32}$", re.IGNORECASE),
+    "info": re.compile(r"^0700012B(?P<mac>.{16}).{14}51.{18}(?P<sn>.{10}).{2}(?P<fw>.{6}).{10}(?P<cnt>.{4}).{4}$", re.IGNORECASE),
+    "name": re.compile(r"^07000130(?P<mac>.{16}).{14}62(?P<name>.{64})$", re.IGNORECASE),
+    "stick_info": re.compile(r"^07270111(?P<mac>.{16})(?P<install>.{8}).{10}$", re.IGNORECASE),
+    "stick_fw": re.compile(r"^072E010C.{16}(?P<fw>.{6}).{2}$", re.IGNORECASE),}
 
 def parse_packet(raw_hex: str):
     """
@@ -142,5 +163,6 @@ def parse_packet(raw_hex: str):
                 "type": "stick_fw",
                 "fw": ".".join([f"{b:02}" for b in fw_bytes])
             }
-
-    raise BeckerParseError(f"Packet does not match any known protocol structure: {raw_hex}")
+    
+    _LOGGER.warning("Unknown packet structure or unparsable: %s", raw_hex)
+    return None

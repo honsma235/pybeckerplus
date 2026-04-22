@@ -10,3 +10,14 @@ A Python library implementing the Becker Centronic Plus USB protocol using `asyn
 
 ## Documentation
 For detailed information about the communication protocol, see the [Protocol Description](resources/protocoll.md).
+
+## CLI Usage
+You can test your USB stick directly from the command line:
+
+```bash
+# Run the monitor tool (Linux)
+python tools/cli.py /dev/ttyUSB0
+
+# Run the monitor tool (Windows)
+python tools/cli.py COM3
+```

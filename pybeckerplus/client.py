@@ -4,12 +4,7 @@ import serial_asyncio
 from typing import Dict, Optional, Callable
 
 from .constants import Action, STX, ETX, STICK_ACK
-from .packet import (
-    wrap_packet, format_mac, build_action_packet, build_moveto_packet,
-    build_status_request, build_global_status_request,
-    build_global_info_request, build_global_name_request,
-    build_get_name_packet, build_set_name_packet, parse_packet
-)
+from .packet import *
 from .device import CentronicDevice
 from .exceptions import BeckerTimeoutError, BeckerError
 
@@ -22,7 +17,6 @@ class BeckerClient:
         self.port = port
         self.devices: Dict[str, CentronicDevice] = {}
         self._device_callback = device_callback
-        
         self.stick_mac: Optional[str] = None
         self.stick_fw: Optional[str] = None
         self._reader: Optional[asyncio.StreamReader] = None
@@ -30,6 +24,7 @@ class BeckerClient:
         self._read_task: Optional[asyncio.Task] = None
         self._cnt = 0
         self._ack_waiter: Optional[asyncio.Future] = None
+        self._suppress_callbacks = False
 
     async def connect(self):
         """Establish serial connection and start background reader."""
@@ -50,6 +45,11 @@ class BeckerClient:
     def _get_next_cnt(self) -> int:
         self._cnt = (self._cnt + 1) & 0xFFFF
         return self._cnt
+
+    def _wrapped_callback(self, device: CentronicDevice):
+        """Wrapper to suppress callbacks during discovery."""
+        if not self._suppress_callbacks and self._device_callback:
+            self._device_callback(device)
 
     async def _read_loop(self):
         """Continuously read from serial, parsing packets and watching for ACKs."""
@@ -74,6 +74,7 @@ class BeckerClient:
                     end = buffer.find(ETX, start)
                     if end > start:
                         packet_hex = buffer[start+1 : end].decode("ascii")
+                        _LOGGER.debug(" <-- USB : %s", packet_hex)
                         self._handle_packet(packet_hex)
                         buffer = buffer[end+1:]
                 
@@ -90,6 +91,9 @@ class BeckerClient:
         """Route parsed data to device objects."""
         try:
             data = parse_packet(packet_hex)
+            if data is None:
+                # Warning already logged by parse_packet
+                return
             
             # Handle stick-level information
             if data["type"] == "stick_info":
@@ -102,7 +106,7 @@ class BeckerClient:
 
             mac_id = data["mac_id"]
             if mac_id not in self.devices:
-                self.devices[mac_id] = CentronicDevice(mac_id, self._device_callback)
+                self.devices[mac_id] = CentronicDevice(mac_id, self._wrapped_callback)
             
             device = self.devices[mac_id]
             
@@ -124,6 +128,7 @@ class BeckerClient:
         self._ack_waiter = asyncio.get_running_loop().create_future()
         packet = wrap_packet(payload_hex)
         
+        _LOGGER.debug(" --> USB %s", payload_hex)
         self._writer.write(packet)
         await self._writer.drain()
 
@@ -134,24 +139,36 @@ class BeckerClient:
         finally:
             self._ack_waiter = None
 
-    async def action(self, mac_id: str, action: Action):
-        """Send a simple action (UP, DOWN, STOP, etc)."""
-        payload = build_action_packet(mac_id, action)
+    async def action(self, mac_id: Optional[str], action: Action):
+        """Send a simple action. Pass mac_id=None for a global command."""
+        if mac_id is None:
+            payload = build_global_action_packet(action, self._get_next_cnt())
+        else:
+            payload = build_action_packet(mac_id, action)
         await self._send(payload)
 
-    async def move_to(self, mac_id: str, percentage: float):
-        """Move device to specific position (0-100)."""
-        payload = build_moveto_packet(mac_id, percentage, self._get_next_cnt())
+    async def move_to(self, mac_id: Optional[str], percentage: float):
+        """Move device to specific position. Pass mac_id=None for a global command."""
+        if mac_id is None:
+            payload = build_global_moveto_packet(percentage, self._get_next_cnt())
+        else:
+            payload = build_moveto_packet(mac_id, percentage, self._get_next_cnt())
         await self._send(payload)
 
-    async def request_status(self, mac_id: str):
-        """Manually poll a device for its status."""
-        payload = build_status_request(mac_id, self._get_next_cnt())
+    async def request_status(self, mac_id: Optional[str] = None):
+        """Manually poll status. Pass mac_id=None for a global request."""
+        if mac_id is None:
+            payload = build_global_status_request(self._get_next_cnt())
+        else:
+            payload = build_status_request(mac_id, self._get_next_cnt())
         await self._send(payload)
 
-    async def get_device_name(self, mac_id: str):
-        """Request the name of a specific device."""
-        payload = build_get_name_packet(mac_id)
+    async def get_device_name(self, mac_id: Optional[str] = None):
+        """Request the name of a device. Pass mac_id=None for a global request."""
+        if mac_id is None:
+            payload = build_global_name_request()
+        else:
+            payload = build_get_name_packet(mac_id)
         await self._send(payload)
 
     async def set_device_name(self, mac_id: str, name: str):
@@ -164,11 +181,18 @@ class BeckerClient:
         Send global requests to find all devices and their states.
         This will populate self.devices via the read loop.
         """
-        await self._send(build_global_status_request(self._get_next_cnt()))
-        await asyncio.sleep(3)
-        await self._send(build_global_info_request(self._get_next_cnt()))
-        await asyncio.sleep(3)
-        await self._send(build_global_name_request())
+        self._suppress_callbacks = True
+        try:
+            await self._send(build_global_name_request())
+            await asyncio.sleep(2)
+            await self._send(build_global_info_request(self._get_next_cnt()))
+            await asyncio.sleep(2)
+            # Last query round: re-enable callbacks so we notify about the final state
+            self._suppress_callbacks = False
+            await self._send(build_global_status_request(self._get_next_cnt()))
+            await asyncio.sleep(2)
+        finally:
+            self._suppress_callbacks = False
 
     def get_device(self, mac_id: str) -> Optional[CentronicDevice]:
         """Get device object from registry."""

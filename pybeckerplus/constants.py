@@ -26,8 +26,8 @@ class PairingAction(Enum):
 class StatusBit(Enum):
     """Status bits from the first status byte."""
     MOVING = 0x02
-    LOWER_LIMIT = 0x04
-    UPPER_LIMIT = 0x08
+    UPPER_LIMIT = 0x04
+    LOWER_LIMIT = 0x08
     OVERHEATED = 0x40
     BLOCKED = 0x80
 

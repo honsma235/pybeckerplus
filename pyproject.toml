@@ -22,3 +22,7 @@ classifiers = [
     "Topic :: Home Automation",
     "Intended Audience :: Developers",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -62,7 +62,7 @@ Request Structure (global): `0709011a00000000000000000101340000000080a0000000000
 | 8 | MAC_ID | `a0dc04fffe...` | 64-bit hardware address of the target device. |
 | 2 | CNT | Var | Host-incremented sequence index. |
 
-Response Structure: `0700011A[MAC_ID]XXXXXXXXXXXXXX80XXXX[STATUS][POS][CNT]0001`
+Response Structure: `0700011A[MAC_ID]XXXXXXXXXXXXXX80XXXX[STATUS][POS][CNT]XXXX`
 
 | Length | Field | Value/Example | Description |
 | :--- | :--- | :--- | :--- |
@@ -78,8 +78,8 @@ This byte reports the physical state of the motor and primary error flags.
 | :--- | :--- | :--- | :--- |
 | **0** | `0x01` | - | Unknown, always 0 |
 | **1** | `0x02` | **Moving** | Indicates the motor is currently **In Motion** (1) or Stationary (0). |
-| **2** | `0x04` | **Lower Limit** | Set when the device has reached the **Lower Limit Switch** (0% Open). |
-| **3** | `0x08` | **Upper Limit** | Set when the device has reached the **Upper Limit Switch** (100% Closed). |
+| **2** | `0x04` | **Upper Limit** | Set when the device has reached the **Upper Limit Switch** (0% Open). |
+| **3** | `0x08` | **Lower Limit** | Set when the device has reached the **Lower Limit Switch** (100% Closed). |
 | **4** | `0x10` | - | Unknown, always 1 |
 | **5** | `0x20` | - | Unknown, always 0 |
 | **6** | `0x40` | **Overheated** | Error flag: Motor has reached thermal limits. |
