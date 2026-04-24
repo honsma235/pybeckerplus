@@ -13,13 +13,14 @@ class CentronicDevice:
         self.blocked: bool = False
         self.overheated: bool = False
         self.fly_screen: bool = False
+        self.rssi: Optional[int] = None
         self.serial_number: Optional[str] = None
         self.firmware_version: Optional[str] = None
         self.name: Optional[str] = None
         
         self._callback = callback
 
-    def update_from_payload(self, status_bytes: bytes, position: float):
+    def update_from_payload(self, status_bytes: bytes, position: float, rssi: Optional[int] = None):
         """Update internal state from raw packet data."""
         if status_bytes and len(status_bytes) >= 2:
             b1 = status_bytes[0]
@@ -35,6 +36,9 @@ class CentronicDevice:
         
         if position is not None:
             self.position = round(position, 1)
+
+        if rssi is not None:
+            self.rssi = rssi
 
         if self._callback:
             self._callback(self)
@@ -61,5 +65,6 @@ class CentronicDevice:
         return {
             "blocked": self.blocked,
             "overheated": self.overheated,
-            "fly_screen": self.fly_screen
+            "fly_screen": self.fly_screen,
+            "rssi": self.rssi
         }

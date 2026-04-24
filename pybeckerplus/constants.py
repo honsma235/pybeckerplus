@@ -11,17 +11,17 @@ class Action(Enum):
     SET_PRESET_1 = "31"
     SET_PRESET_2 = "51"
     DELETE_PRESETS = "17"
-    TOGGLE_FLY_SCREEN = "d1"
+    TOGGLE_FLY_SCREEN = "D1"
 
 class PairingAction(Enum):
     """Pairing/Teach-in commands."""
-    ACTIVATE_CENTRONIC_PLUS = "9a"
-    DEACTIVATE_CENTRONIC_PLUS = "9b"
+    ACTIVATE_CENTRONIC_PLUS = "9A"
+    DEACTIVATE_CENTRONIC_PLUS = "9B"
     ACTIVATE_CENTRONIC_MASTER = "96"
     ACTIVATE_CENTRONIC = "97"
     ACTIVATE_CENTRONIC_TEACH_OUT = "98"
     DEACTIVATE_CENTRONIC = "99"
-    DELETE_ALL_PAIRINGS = "9d"
+    DELETE_ALL_PAIRINGS = "9D"
 
 class StatusBit(Enum):
     """Status bits from the first status byte."""

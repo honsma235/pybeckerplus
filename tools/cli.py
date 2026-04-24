@@ -14,10 +14,11 @@ from pybeckerplus import BeckerClient, Action
 MONITOR_ENABLED = True
 
 def print_device(device):
-    print(f"Mac: {device.mac_id} ({device.name or 'Unknown'}), "
-              f"Pos={device.position}%, Moving={device.moving}, "
-              f"Limits(U={int(device.upper_limit)} L={int(device.lower_limit)}), "
-              f"Status(Block={int(device.blocked)} OverH={int(device.overheated)}  Fly={int(device.fly_screen)})")
+    print(f"Mac: {device.mac_id} ({device.name}), "
+            f"SN: {device.serial_number}, FW: {device.firmware_version}), "
+            f"Pos={device.position}%, RSSI={device.rssi}, Moving={device.moving}, "
+            f"Limits(U={int(device.upper_limit)} L={int(device.lower_limit)}), "
+            f"Status(Block={int(device.blocked)} OverH={int(device.overheated)}  Fly={int(device.fly_screen)})")
 
 def get_target(mac_input: str) -> Optional[str]:
     """Helper to convert 'all' keyword to None for the client."""
@@ -71,6 +72,10 @@ Commands:
 """)
 
             elif cmd == "list":
+                print(f"Stick Info: MAC={client.stick_mac or 'Unknown'}, "
+                      f"InstallID={client.stick_install_id or 'Unknown'}, "
+                      f"FW={client.stick_fw or 'Unknown'}")
+                print("-" * 60)
                 if not client.devices:
                     print("No devices discovered.")
                 else:
@@ -95,10 +100,10 @@ Commands:
                 await client.request_status(get_target(parts[1]))
 
             elif cmd == "name" and len(parts) > 2:
-                await client.get_device_name(get_target(parts[1]))
+                await client.set_device_name(parts[1], parts[2])
 
             elif cmd == "get-name" and len(parts) > 1:
-                await client.get_device_name(parts[1])
+                await client.get_device_name(get_target(parts[1]))
 
             else:
                 print(f"Unknown command or missing arguments: {cmd}")

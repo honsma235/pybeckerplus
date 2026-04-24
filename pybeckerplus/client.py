@@ -19,6 +19,7 @@ class BeckerClient:
         self._device_callback = device_callback
         self.stick_mac: Optional[str] = None
         self.stick_fw: Optional[str] = None
+        self.stick_install_id: Optional[str] = None
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
         self._read_task: Optional[asyncio.Task] = None
@@ -89,36 +90,36 @@ class BeckerClient:
 
     def _handle_packet(self, packet_hex: str):
         """Route parsed data to device objects."""
-        try:
-            data = parse_packet(packet_hex)
-            if data is None:
-                # Warning already logged by parse_packet
-                return
-            
-            # Handle stick-level information
-            if data["type"] == "stick_info":
-                self.stick_mac = data["mac_id"]
-                return
-            if data["type"] == "stick_fw":
-                self.stick_fw = data["fw"]
-                _LOGGER.info("Stick Firmware: %s", self.stick_fw)
-                return
+        if not (data := parse_packet(packet_hex)):
+            return
 
-            mac_id = data["mac_id"]
-            if mac_id not in self.devices:
-                self.devices[mac_id] = CentronicDevice(mac_id, self._wrapped_callback)
-            
-            device = self.devices[mac_id]
-            
-            if "status" in data:
-                device.update_from_payload(data["status"], data.get("pos"))
-            if "sn" in data:
-                device.update_info(data["sn"], data["fw"])
-            if "name" in data:
-                device.update_name(data["name"])
-                
-        except Exception as e:
-            _LOGGER.warning("Failed to handle packet %s: %s", packet_hex, e)
+        try:
+            match data.get("type"):
+                case "stick_info":
+                    self.stick_mac = data["mac_id"]
+                    self.stick_install_id = data["install_id"]
+
+                case "stick_fw":
+                    self.stick_fw = data["fw"]
+                    _LOGGER.info("Stick Firmware: %s", self.stick_fw)
+
+                case "device":
+                    mac_id = data["mac_id"]
+                    # setdefault ensures the device exists without an explicit check-and-insert
+                    device = self.devices.setdefault(
+                        mac_id, CentronicDevice(mac_id, self._wrapped_callback)
+                    )
+
+                    # Update the specific attributes provided in this packet
+                    if "status" in data:
+                        device.update_from_payload(data["status"], data.get("pos"), data.get("rssi"))
+                    if "sn" in data:
+                        device.update_info(data["sn"], data["fw"])
+                    if "name" in data:
+                        device.update_name(data["name"])
+
+        except Exception:
+            _LOGGER.exception("Unexpected error processing packet: %s", packet_hex)
 
     async def _send(self, payload_hex: str, timeout: float = 1.0):
         """Send packet and wait for stick acknowledgment."""
@@ -183,14 +184,18 @@ class BeckerClient:
         """
         self._suppress_callbacks = True
         try:
+            await self._send(build_stick_fw_request())
+            await asyncio.sleep(0.2)
+            await self._send(build_stick_info_request())
+            await asyncio.sleep(0.2)
             await self._send(build_global_name_request())
-            await asyncio.sleep(2)
+            await asyncio.sleep(2.5)
             await self._send(build_global_info_request(self._get_next_cnt()))
-            await asyncio.sleep(2)
+            await asyncio.sleep(2.5)
             # Last query round: re-enable callbacks so we notify about the final state
             self._suppress_callbacks = False
             await self._send(build_global_status_request(self._get_next_cnt()))
-            await asyncio.sleep(2)
+            await asyncio.sleep(2.5)
         finally:
             self._suppress_callbacks = False
 

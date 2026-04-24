@@ -1,7 +1,7 @@
 import re
 import struct
 import logging
-from .constants import Action, STX, ETX
+from .constants import Action, PairingAction, STX, ETX
 from .exceptions import BeckerParseError
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,19 +38,16 @@ def format_cnt(cnt: int) -> str:
     return bytes_to_hex(struct.pack(">H", cnt & 0xFFFF))
 
 def build_action_packet(mac: str, action: Action) -> str:
-    """Section 2.1: Action Commands (Direct)."""
     mac = format_mac(mac)
     # 07010118 + MAC(16) + 01013400000000000000 + CMD(2) + 0000000501
     return f"07010118{mac}01013400000000000000{action.value}0000000501"
 
 def build_global_action_packet(action: Action, cnt: int) -> str:
-    """Section 2.1: Action Commands (Global)."""
     cnt_hex = format_cnt(cnt)
     # 0709011a + 0000000000000000 + 01013400000000002000 + CMD(2) + 000000 + CNT(4) + 0501
     return f"0709011A000000000000000001013400000000002000{action.value}000000{cnt_hex}0501"
 
 def build_moveto_packet(mac: str, percentage: float, cnt: int) -> str:
-    """Section 2.2: MoveTo Command (Direct)."""
     mac = format_mac(mac)
     pos_hex = format_pos(percentage)
     cnt_hex = format_cnt(cnt)
@@ -58,39 +55,42 @@ def build_moveto_packet(mac: str, percentage: float, cnt: int) -> str:
     return f"0701011A{mac}010134000000005340000000{pos_hex}{cnt_hex}0501"
 
 def build_global_moveto_packet(percentage: float, cnt: int) -> str:
-    """Section 2.2: MoveTo Command (Global)."""
     pos_hex = format_pos(percentage)
     cnt_hex = format_cnt(cnt)
     # 0709011a + 0000000000000000 + 010134000000005340000000 + POS(4) + CNT(4) + 0501
     return f"0709011A0000000000000000010134000000005340000000{pos_hex}{cnt_hex}0501"
 
 def build_status_request(mac: str, cnt: int) -> str:
-    """Section 3.1: Status & Position Request (Direct)."""
     mac = format_mac(mac)
     cnt_hex = format_cnt(cnt)
     return f"0701011A{mac}0101340000000080A00000000000{cnt_hex}0501"
 
 def build_global_status_request(cnt: int) -> str:
-    """Section 3.1: Global Status & Position Request."""
     cnt_hex = format_cnt(cnt)
     return f"0709011A00000000000000000101340000000080A00000000000{cnt_hex}0501"
 
+def build_parent_mac_request(mac: str, cnt: int) -> str:
+    mac = format_mac(mac)
+    cnt_hex = format_cnt(cnt)
+    return f"0701011A{mac}0101340000000083800000000000{cnt_hex}0501"
+
+def build_pairing_packet(mac: str, action: PairingAction) -> str:
+    mac = format_mac(mac)
+    # 07010118 + MAC(16) + 01013400000000 + CMD(2) + 2000ffba00000501
+    return f"07010118{mac}01013400000000{action.value}2000FFBA00000501"
+
 def build_global_info_request(cnt: int) -> str:
-    """Section 3.2: Global SN & FW Request."""
     cnt_hex = format_cnt(cnt)
     return f"07090119000000000000000001013400000000510000000000{cnt_hex}0501"
 
 def build_global_name_request() -> str:
-    """Section 3.4.1: Global Name Request."""
     return f"0709013000000000000000008001340000000060{'0'*72}"
 
 def build_get_name_packet(mac: str) -> str:
-    """Section 3.4.1: Direct Name Request."""
     mac = format_mac(mac)
     return f"07010130{mac}8001340000000060{'0'*72}"
 
 def build_set_name_packet(mac: str, name: str) -> str:
-    """Section 3.4.2: Set Device Name (UTF-8, hex encoded, 32-byte padded)."""
     mac = format_mac(mac)
     name_bytes = name.encode("utf-8")
     if len(name_bytes) > 32:
@@ -103,13 +103,19 @@ def build_set_name_packet(mac: str, name: str) -> str:
     name_hex = name_bytes.hex().upper().ljust(64, '0')
     return f"07010130{mac}8001340000000061{name_hex}"
 
+def build_stick_info_request() -> str:
+    return "0717010B0000000000000000000000"
+
+def build_stick_fw_request() -> str:
+    return "071E010B0000000000000000000000"
 
 # Strict Protocol Patterns (Hex String Format)
 PATTERNS = {
-    "status": re.compile(r"^0700011A(?P<mac>.{16}).{14}80.{4}(?P<status>.{4})(?P<pos>.{4})(?P<cnt>.{4}).{4}$", re.IGNORECASE),
-    "unsolicited": re.compile(r"^07000126(?P<mac>.{16}).{14}52.{4}(?P<status>.{4})(?P<pos>.{4}).{32}$", re.IGNORECASE),
+    "status": re.compile(r"^0700011A(?P<mac>.{16}).{14}80.{2}(?P<rssi>.{2})(?P<status>.{4})(?P<pos>.{4})(?P<cnt>.{4}).{4}$", re.IGNORECASE),
+    "unsolicited": re.compile(r"^07000126(?P<mac>.{16}).{14}52.{2}(?P<rssi>.{2})(?P<status>.{4})(?P<pos>.{4}).{32}$", re.IGNORECASE),
     "info": re.compile(r"^0700012B(?P<mac>.{16}).{14}51.{18}(?P<sn>.{10}).{2}(?P<fw>.{6}).{10}(?P<cnt>.{4}).{4}$", re.IGNORECASE),
     "name": re.compile(r"^07000130(?P<mac>.{16}).{14}62(?P<name>.{64})$", re.IGNORECASE),
+    "parent_mac": re.compile(r"^0700011A(?P<mac>.{16}).{6}(?P<root>.{8})83(?P<parent>.{8}).{4}(?P<cnt>.{4}).{4}$", re.IGNORECASE),
     "stick_info": re.compile(r"^07270111(?P<mac>.{16})(?P<install>.{8}).{10}$", re.IGNORECASE),
     "stick_fw": re.compile(r"^072E010C.{16}(?P<fw>.{6}).{2}$", re.IGNORECASE),}
 
@@ -130,7 +136,8 @@ def parse_packet(raw_hex: str):
                 "type": "device",
                 "mac_id": match.group("mac").lower(),
                 "status": hex_to_bytes(match.group("status")),
-                "pos": (pos_raw / 65535.0) * 100.0
+                "pos": (pos_raw / 65535.0) * 100.0,
+                "rssi": int(match.group("rssi"), 16)
             }
 
         if ptype == "info":
@@ -148,6 +155,14 @@ def parse_packet(raw_hex: str):
                 "type": "device",
                 "mac_id": match.group("mac").lower(),
                 "name": name_bytes.decode("utf-8").rstrip("\x00")
+            }
+        
+        if ptype == "parent_mac":
+            return {
+                "type": "device",
+                "mac_id": match.group("mac").lower(),
+                "parent_mac": match.group("root").lower() + match.group("parent").lower(),
+                "cnt": match.group("cnt").lower()
             }
 
         if ptype == "stick_info":
