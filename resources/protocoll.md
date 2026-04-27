@@ -15,7 +15,7 @@ Messages received from the stick typically terminate with a single LF (`\n`).
 
 ## 2. Commands & Message Overview
 
-The following table provides a quick reference for all known commands. For detailed packet structures refer to the linked sections. Field descriptions follow [below](#3-field-descriptions), 
+The following table provides a quick reference for all known commands. For detailed packet structures refer to the linked sections. Field descriptions follow [below](#3-field-descriptions).
 
 | Chapter | Function |
 |---|---|

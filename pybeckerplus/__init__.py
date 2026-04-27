@@ -1,6 +1,6 @@
 """Becker Centronic Plus USB Python Library."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .client import BeckerClient
 from .device import CentronicDevice
