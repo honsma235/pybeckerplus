@@ -131,23 +131,24 @@ def test_status_and_info_requests():
     assert "80A0" in build_status_request(mac, 1)
     assert "80A0" in build_global_status_request(2)
     
-def test_identify_command_building():
+def test_identify_command_building(): # This test function also contains assertions for other commands, which are left as-is.
     """Test building the identify (jog) packet."""
-    mac = "A0DC04FFFE123456"
-    pkt = build_identify_packet(mac)
-    assert pkt.startswith("0701011A")
-    assert mac.upper() in pkt
-    assert "810000000001" in pkt
+    mac_input = "A0DC04FFFE123456"
+    formatted_mac = format_mac(mac_input) # format_mac converts to lowercase
+    pkt = build_identify_packet(mac_input)
+    expected_packet_suffix = "010134000000000020008100000000010501"
+    expected_full_packet = f"0701011A{formatted_mac}{expected_packet_suffix}"
+    assert pkt == expected_full_packet
 
     # Parent MAC Request
-    assert "8380" in build_parent_mac_request(mac, 3)
+    assert "8380" in build_parent_mac_request(mac_input, 3)
 
     # SN/FW Global Request
     assert "510000000000" in build_global_info_request(4)
 
     # Name Requests
     assert build_global_name_request().startswith("07090130")
-    assert build_get_name_packet(mac).startswith("07010130")
+    assert build_get_name_packet(mac_input).startswith("07010130")
 
     # Stick Requests
     assert build_stick_info_request() == "0717010B0000000000000000000000"
