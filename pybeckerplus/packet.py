@@ -60,6 +60,11 @@ def build_global_moveto_packet(percentage: float, cnt: int) -> str:
     # 0709011a + 0000000000000000 + 010134000000005340000000 + POS(4) + CNT(4) + 0501
     return f"0709011A0000000000000000010134000000005340000000{pos_hex}{cnt_hex}0501"
 
+def build_identify_packet(mac: str) -> str:
+    mac = format_mac(mac)
+    # 0701011A + MAC(16) + 010134000000000020008100000000010501
+    return f"0701011A{mac}010134000000000020008100000000010501"
+
 def build_status_request(mac: str, cnt: int) -> str:
     mac = format_mac(mac)
     cnt_hex = format_cnt(cnt)

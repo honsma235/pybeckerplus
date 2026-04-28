@@ -65,6 +65,7 @@ Commands:
   stop <mac|all>      - Stop device(s) movement
   move <mac|all> <0-100> - Move to specific position
   status <mac|all>    - Poll status for device(s)
+  identify <mac>      - Identify device (jog)
   name <mac> <name>   - Set a new name for a device
   get-name <mac|all>  - Fetch name from device(s)
   help                - Show this menu
@@ -98,6 +99,9 @@ Commands:
 
             elif cmd == "status" and len(parts) > 1:
                 await client.request_status(get_target(parts[1]))
+
+            elif cmd == "identify" and len(parts) > 1:
+                await client.identify(parts[1])
 
             elif cmd == "name" and len(parts) > 2:
                 await client.set_device_name(parts[1], parts[2])

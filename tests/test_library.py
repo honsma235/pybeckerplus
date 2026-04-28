@@ -131,6 +131,14 @@ def test_status_and_info_requests():
     assert "80A0" in build_status_request(mac, 1)
     assert "80A0" in build_global_status_request(2)
     
+def test_identify_command_building():
+    """Test building the identify (jog) packet."""
+    mac = "A0DC04FFFE123456"
+    pkt = build_identify_packet(mac)
+    assert pkt.startswith("0701011A")
+    assert mac.upper() in pkt
+    assert "810000000001" in pkt
+
     # Parent MAC Request
     assert "8380" in build_parent_mac_request(mac, 3)
 

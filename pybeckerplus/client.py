@@ -156,6 +156,11 @@ class BeckerClient:
             payload = build_moveto_packet(mac_id, percentage, self._get_next_cnt())
         await self._send(payload)
 
+    async def identify(self, mac_id: str):
+        """Send an identify (jog) command to a specific device."""
+        payload = build_identify_packet(mac_id)
+        await self._send(payload)
+
     async def request_status(self, mac_id: Optional[str] = None):
         """Manually poll status. Pass mac_id=None for a global request."""
         if mac_id is None:

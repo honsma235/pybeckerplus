@@ -21,13 +21,14 @@ The following table provides a quick reference for all known commands. For detai
 |---|---|
 | [2.1](#21-action-commands) | Action Commands (Up/Down/Stop/Presets) |
 | [2.2](#22-moveto-command) | MoveTo Command (Absolute Positioning) |
-| [2.3](#23-unsolicited-status-report) | Unsolicited Status Report |
-| [2.4](#24-status--position-request) | Status & Position Request |
-| [2.5](#25-serial-number-sn--firmware-fw) | SN & Firmware Request |
-| [2.6](#26-parent-mac-id) | Parent MAC ID (Mesh Topology) |
-| [2.7](#27-device-name-management) | Device Name Management (Get/Set) |
-| [2.8](#28-stick-identity--firmware) | Stick Identity (MAC/FW) |
-| [2.9](#29-pairing--teach-in-commands) | Pairing / Teach-in |
+| [2.3](#23-identify-command-jog) | Identify Command (Jog) |
+| [2.4](#24-unsolicited-status-report) | Unsolicited Status Report |
+| [2.5](#25-status--position-request) | Status & Position Request |
+| [2.6](#26-serial-number-sn--firmware-fw) | SN & Firmware Request |
+| [2.7](#27-parent-mac-id) | Parent MAC ID (Mesh Topology) |
+| [2.8](#28-device-name-management) | Device Name Management (Get/Set) |
+| [2.9](#29-stick-identity--firmware) | Stick Identity (MAC/FW) |
+| [2.10](#210-pairing--teach-in-commands) | Pairing / Teach-in |
 
 
 Requests are sent to the USB stick.
@@ -49,7 +50,13 @@ These commands, along with the "MoveTo" command, typically trigger an "Unsolicit
 | Request (direct) | `0701011A[....MAC_ID....]010134000000005340000000[POS][CNT]0501` |
 | Request (global) | `0709011A0000000000000000010134000000005340000000[POS][CNT]0501` |
 
-### 2.3 Unsolicited Status Report
+### 2.3 Identify Command (Jog)
+
+| Type | Structure |
+| ------ | ------ |
+| Request (direct) | `0701011A[....MAC_ID....]010134000000000020008100000000010501` |
+
+### 2.4 Unsolicited Status Report
 
 Sent by a device to the stick (and forwarded to the host) whenever a movement completes (e.g., after manual remote control operation) or a status attribute changes.
 
@@ -57,7 +64,7 @@ Sent by a device to the stick (and forwarded to the host) whenever a movement co
 |---|---|
 | Response | `07000126[....MAC_ID....]XXXXXXXXXXXXXX52XX[RSSI][STATUS][POS]XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX` |
 
-### 2.4 Status & Position Request
+### 2.5 Status & Position Request
 
 | Type | Structure |
 |---|---|
@@ -65,7 +72,7 @@ Sent by a device to the stick (and forwarded to the host) whenever a movement co
 | Request (global) | `0709011A00000000000000000101340000000080A00000000000[CNT]0501` |
 | Response | `0700011A[....MAC_ID....]XXXXXXXXXXXXXX80XX[RSSI][STATUS][POS][CNT]XXXX` |
 
-### 2.5 Serial Number (SN) & Firmware (FW)
+### 2.6 Serial Number (SN) & Firmware (FW)
 
 | Type | Structure |
 |---|---|
@@ -73,7 +80,7 @@ Sent by a device to the stick (and forwarded to the host) whenever a movement co
 | Request (global) | `07090119000000000000000001013400000000510000000000[CNT]0501` |
 | Response | `0700012B[....MAC_ID....]XXXXXXXXXXXXXX51XXXXXXXXXXXXXXXXXX[SN]XX[FW]XXXXXXXXXX[CNT][XX]` |
 
-### 2.6 Parent MAC ID
+### 2.7 Parent MAC ID
 
 Used to identify the mesh network topology.
 
@@ -82,7 +89,7 @@ Used to identify the mesh network topology.
 | Request | `0701011A[....MAC_ID....]0101340000000083800000000000[CNT]0501` |
 | Response | `0700011A[....MAC_ID....]XXXXXX[ROOT_PFX]83[PARENT_ID]XXXX[CNT]XXXX` |
 
-### 2.7 Device Name Management
+### 2.8 Device Name Management
 
 Used to retrieve or set the human-readable name of a device. Both "Get" and "Set" operations trigger a Device Name Response from the target.
 
@@ -93,7 +100,7 @@ Used to retrieve or set the human-readable name of a device. Both "Get" and "Set
 | Set Name Request | `07010130[....MAC_ID....]8001340000000061[NAME]` |
 | Response | `07000130[....MAC_ID....]XXXXXXXXXXXXXXXX62[NAME]` |
 
-### 2.8 Stick Identity & Firmware
+### 2.9 Stick Identity & Firmware
 
 These requests target the USB stick directly to retrieve its hardware identity and internal firmware version.
 
@@ -104,7 +111,7 @@ These requests target the USB stick directly to retrieve its hardware identity a
 | FW Request | `071E010B0000000000000000000000` |
 | FW Response | `072E010CXXXXXXXXXXXXXXXX[STICK_FW]XX` |
 
-### 2.9 Pairing / Teach-in Commands
+### 2.10 Pairing / Teach-in Commands
 
 These action commands are used to manage device pairing and the "teach-in" process.  
 They can be used to pair additional Centronic or Centronic Plus devices, like hand-held or wall tranismitter, to the target.

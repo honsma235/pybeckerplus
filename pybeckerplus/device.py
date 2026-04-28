@@ -59,12 +59,3 @@ class CentronicDevice:
 
     def __repr__(self):
         return f"<CentronicDevice {self.mac_id} pos={self.position}% moving={self.moving}>"
-
-    @property
-    def state_attributes(self):
-        return {
-            "blocked": self.blocked,
-            "overheated": self.overheated,
-            "fly_screen": self.fly_screen,
-            "rssi": self.rssi
-        }
