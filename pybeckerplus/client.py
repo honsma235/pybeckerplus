@@ -60,8 +60,8 @@ class BeckerClient:
         buffer = b""
         while True:
             try:
-                # serialx.read(1) will raise OSError or similar if the USB is removed
-                data = await self._serial.read(1)
+                # Read larger chunks to reduce event loop overhead
+                data = await self._serial.read(1024)
                 if not data:
                     # EOF reached - usually means the device was closed or disconnected
                     _LOGGER.warning("Serial connection closed (EOF)")
@@ -69,21 +69,27 @@ class BeckerClient:
                 
                 buffer += data
 
-                # Check for Stick Acknowledgment
-                if STICK_ACK in buffer:
+                # Drain all Stick Acknowledgments
+                while STICK_ACK in buffer:
                     if self._ack_waiter and not self._ack_waiter.done():
                         self._ack_waiter.set_result(True)
-                    buffer = buffer.replace(STICK_ACK, b"")
+                    buffer = buffer.replace(STICK_ACK, b"", 1)
 
-                # Check for STX/ETX Framed Packets
-                if STX in buffer and ETX in buffer:
+                # Drain all STX/ETX Framed Packets
+                while STX in buffer and ETX in buffer:
                     start = buffer.find(STX)
                     end = buffer.find(ETX, start)
                     if end > start:
-                        packet_hex = buffer[start+1 : end].decode("ascii")
-                        _LOGGER.debug(" <-- USB : %s", packet_hex)
-                        self._handle_packet(packet_hex)
+                        try:
+                            packet_hex = buffer[start+1 : end].decode("ascii")
+                            _LOGGER.debug(" <-- USB : %s", packet_hex)
+                            self._handle_packet(packet_hex)
+                        except UnicodeDecodeError:
+                            _LOGGER.error("Failed to decode serial packet")
                         buffer = buffer[end+1:]
+                    else:
+                        # Found ETX before STX, discard garbage up to STX
+                        buffer = buffer[start:]
                 
                 # Prevent buffer bloat
                 if len(buffer) > 1024:
