@@ -1,7 +1,7 @@
 import asyncio
 import logging
-import serial_asyncio
 from typing import Dict, Optional, Callable
+import serialx
 
 from .constants import Action, STX, ETX, STICK_ACK
 from .packet import *
@@ -13,15 +13,20 @@ _LOGGER = logging.getLogger(__name__)
 class BeckerClient:
     """Main interface for the Becker CentronicPlus USB stick."""
 
-    def __init__(self, port: str, device_callback: Optional[Callable] = None):
+    def __init__(
+        self, 
+        port: str, 
+        device_callback: Optional[Callable] = None,
+        on_disconnect: Optional[Callable[[Optional[Exception]], None]] = None
+    ):
         self.port = port
         self.devices: Dict[str, CentronicDevice] = {}
         self._device_callback = device_callback
+        self._on_disconnect = on_disconnect
         self.stick_mac: Optional[str] = None
         self.stick_fw: Optional[str] = None
         self.stick_install_id: Optional[str] = None
-        self._reader: Optional[asyncio.StreamReader] = None
-        self._writer: Optional[asyncio.StreamWriter] = None
+        self._serial: Optional[serialx.Serial] = None
         self._read_task: Optional[asyncio.Task] = None
         self._cnt = 0
         self._ack_waiter: Optional[asyncio.Future] = None
@@ -29,9 +34,8 @@ class BeckerClient:
 
     async def connect(self):
         """Establish serial connection and start background reader."""
-        self._reader, self._writer = await serial_asyncio.open_serial_connection(
-            url=self.port, baudrate=115200
-        )
+        self._serial = serialx.Serial(self.port, baudrate=115200)
+        await self._serial.open()
         self._read_task = asyncio.create_task(self._read_loop())
         _LOGGER.info("Connected to Becker USB stick on %s", self.port)
 
@@ -39,9 +43,8 @@ class BeckerClient:
         """Close the serial connection."""
         if self._read_task:
             self._read_task.cancel()
-        if self._writer:
-            self._writer.close()
-            await self._writer.wait_closed()
+        if self._serial:
+            await self._serial.close()
 
     def _get_next_cnt(self) -> int:
         self._cnt = (self._cnt + 1) & 0xFFFF
@@ -57,9 +60,12 @@ class BeckerClient:
         buffer = b""
         while True:
             try:
-                data = await self._reader.read(1)
+                # serialx.read(1) will raise OSError or similar if the USB is removed
+                data = await self._serial.read(1)
                 if not data:
-                    continue
+                    # EOF reached - usually means the device was closed or disconnected
+                    _LOGGER.warning("Serial connection closed (EOF)")
+                    break
                 
                 buffer += data
 
@@ -86,7 +92,12 @@ class BeckerClient:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                _LOGGER.error("Error in read loop: %s", e)
+                _LOGGER.error("Fatal error in serial read loop: %s", e)
+                if self._on_disconnect:
+                    self._on_disconnect(e)
+                break
+
+        _LOGGER.info("Serial read loop terminated")
 
     def _handle_packet(self, packet_hex: str):
         """Route parsed data to device objects."""
@@ -123,15 +134,14 @@ class BeckerClient:
 
     async def _send(self, payload_hex: str, timeout: float = 1.0):
         """Send packet and wait for stick acknowledgment."""
-        if not self._writer:
+        if not self._serial:
             raise BeckerError("Not connected")
 
         self._ack_waiter = asyncio.get_running_loop().create_future()
         packet = wrap_packet(payload_hex)
         
         _LOGGER.debug(" --> USB %s", payload_hex)
-        self._writer.write(packet)
-        await self._writer.drain()
+        await self._serial.write(packet)
 
         try:
             await asyncio.wait_for(self._ack_waiter, timeout=timeout)
