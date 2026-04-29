@@ -13,7 +13,7 @@ authors = [
     {name = "honsma235",email = "114189750+honsma235@users.noreply.github.com"}
 ]
 dependencies = [
-    "pyserial-asyncio",
+    "serialx",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
