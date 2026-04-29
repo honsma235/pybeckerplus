@@ -74,6 +74,7 @@ class BeckerClient:
                     if self._ack_waiter and not self._ack_waiter.done():
                         self._ack_waiter.set_result(True)
                     buffer = buffer.replace(STICK_ACK, b"", 1)
+                    await asyncio.sleep(0)  # Yield to the event loop
 
                 # Drain all STX/ETX Framed Packets
                 while STX in buffer and ETX in buffer:
@@ -87,6 +88,7 @@ class BeckerClient:
                         except UnicodeDecodeError:
                             _LOGGER.error("Failed to decode serial packet")
                         buffer = buffer[end+1:]
+                        await asyncio.sleep(0)  # Yield to the event loop
                     else:
                         # Found ETX before STX, discard garbage up to STX
                         buffer = buffer[start:]
