@@ -91,23 +91,54 @@ Commands:
                 await client.start_discovery()
 
             elif cmd in ["up", "down", "stop"] and len(parts) > 1:
+                target = get_target(parts[1])
                 action_map = {"up": Action.UP, "down": Action.DOWN, "stop": Action.STOP}
-                await client.action(get_target(parts[1]), action_map[cmd])
+                if target is None:
+                    await client.global_action(action_map[cmd])
+                elif device := client.get_device(target):
+                    await getattr(device, cmd)()
+                else:
+                    print(f"Device {target} not found")
 
             elif cmd == "move" and len(parts) > 2:
-                await client.move_to(get_target(parts[1]), float(parts[2]))
+                target = get_target(parts[1])
+                pos = float(parts[2])
+                if target is None:
+                    await client.global_move_to(pos)
+                elif device := client.get_device(target):
+                    await device.move_to(pos)
+                else:
+                    print(f"Device {target} not found")
 
             elif cmd == "status" and len(parts) > 1:
-                await client.request_status(get_target(parts[1]))
+                target = get_target(parts[1])
+                if target is None:
+                    await client.global_request_status()
+                elif device := client.get_device(target):
+                    await device.request_status()
+                else:
+                    print(f"Device {target} not found")
 
             elif cmd == "identify" and len(parts) > 1:
-                await client.identify(parts[1])
+                if device := client.get_device(parts[1]):
+                    await device.identify()
+                else:
+                    print(f"Device {parts[1]} not found")
 
             elif cmd == "name" and len(parts) > 2:
-                await client.set_device_name(parts[1], parts[2])
+                if device := client.get_device(parts[1]):
+                    await device.set_name(parts[2])
+                else:
+                    print(f"Device {parts[1]} not found")
 
             elif cmd == "get-name" and len(parts) > 1:
-                await client.get_device_name(get_target(parts[1]))
+                target = get_target(parts[1])
+                if target is None:
+                    await client.global_get_device_names()
+                elif device := client.get_device(target):
+                    await device.get_name()
+                else:
+                    print(f"Device {target} not found")
 
             else:
                 print(f"Unknown command or missing arguments: {cmd}")

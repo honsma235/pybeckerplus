@@ -38,3 +38,9 @@ class StatusBitAux(Enum):
 STX = b"\x02"
 ETX = b"\x03"
 STICK_ACK = b"\r\n\r\n"
+
+# Minimum time (seconds) to wait between sending commands to the USB stick
+COMMAND_GAP_TIME = 0.2
+
+# Default time to wait for a device response before marking it unavailable
+DEVICE_RESPONSE_TIMEOUT = 2.5

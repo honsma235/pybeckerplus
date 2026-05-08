@@ -99,11 +99,13 @@ def build_set_name_packet(mac: str, name: str) -> str:
     mac = format_mac(mac)
     name_bytes = name.encode("utf-8")
     if len(name_bytes) > 32:
+        # Truncate to 32 bytes while ensuring we don't break UTF-8 multi-byte characters
+        # by decoding with 'ignore' and re-encoding.
+        name_bytes = name_bytes[:32].decode("utf-8", "ignore").encode("utf-8")
         _LOGGER.warning(
-            "Device name '%s' is too long (%d bytes after UTF-8 encoding) and will be truncated to 32 bytes.",
-            name, len(name_bytes)
+            "Device name '%s' was too long and was truncated to '%s' to fit in 32 bytes (UTF-8 encoded).",
+            name, name_bytes.decode("utf-8")
         )
-        name_bytes = name_bytes[:32]
     # Pad to 32 bytes (64 hex chars)
     name_hex = name_bytes.hex().upper().ljust(64, '0')
     return f"07010130{mac}8001340000000061{name_hex}"
@@ -184,5 +186,5 @@ def parse_packet(raw_hex: str):
                 "fw": ".".join([f"{b:02}" for b in fw_bytes])
             }
     
-    _LOGGER.warning("Unknown packet structure or unparsable: %s", raw_hex)
+    _LOGGER.debug("Unknown packet structure or unparsable: %s", raw_hex)
     return None

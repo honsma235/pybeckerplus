@@ -81,7 +81,7 @@ def test_parse_stick_responses():
 
 def test_device_state_logic():
     """Test that the CentronicDevice object correctly interprets status bits."""
-    device = CentronicDevice("a0dc04fffe123456")
+    device = CentronicDevice("a0dc04fffe123456", None)
     
     # Payload: Moving=True, Overheated=True, FlyScreen=True
     # Status Byte 1: 0x02 (Moving) | 0x40 (Overheated) | 0x10 (Fixed) = 0x52
