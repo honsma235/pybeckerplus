@@ -1,6 +1,10 @@
 # pybeckerplus
 
-A Python library implementing the Becker Centronic Plus USB protocol using `asyncio`. This library is designed to be used in Home Assistant integrations to control Becker Centronic Plus devices via a USB stick.
+> [!WARNING]
+> **Work in Progress:** This library is currently in early development and is not considered production-ready. Use it with caution and expect potential breaking changes.
+
+
+A Python library implementing the Becker Centronic Plus USB protocol using `asyncio`. This library was designed to be used in [this](https://github.com/honsma235/hass-becker-centronic-plus) custom Home Assistant integration to control Becker Centronic Plus devices via a USB stick.
 
 ## Features
 - **Async-first**: Built on [serialx](https://github.com/puddly/serialx).
