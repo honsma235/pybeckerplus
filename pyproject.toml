@@ -1,19 +1,16 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "pybeckerplus"
 version = "0.2.0"
 description = "A Python library for the Becker Centronic Plus USB protocol"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = "MIT"
 authors = [
     {name = "honsma235",email = "114189750+honsma235@users.noreply.github.com"}
-]
-dependencies = [
-    "serialx",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -21,11 +18,44 @@ classifiers = [
     "Topic :: Home Automation",
     "Intended Audience :: Developers",
 ]
+dependencies = [
+    "serialx>=1.0.0",
+]
 
-[tool.setuptools]
-package-dir = {"" = "src"}
-packages = ["pybeckerplus"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/pybeckerplus"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.0",
+    "ruff>=0.15.0",
+]
+
+# The ruff config is based on https://github.com/ludeeus/integration_blueprint/blob/main/.ruff.toml
+[tool.ruff]
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "ALL",
+]
+ignore = [
+    "ANN401", # Dynamically typed expressions (typing.Any) are disallowed
+    "D203", # no-blank-line-before-class (incompatible with formatter)
+    "D212", # multi-line-summary-first-line (incompatible with formatter)
+    "COM812", # incompatible with formatter
+    "ISC001", # incompatible with formatter
+]
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
+
+[tool.ruff.lint.mccabe]
+max-complexity = 25
