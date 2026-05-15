@@ -33,6 +33,7 @@ testpaths = ["tests"]
 dev = [
     "pytest>=9.0.0",
     "ruff>=0.15.0",
+    "ty>=0.0.36",
 ]
 
 # The ruff config is based on https://github.com/ludeeus/integration_blueprint/blob/main/.ruff.toml

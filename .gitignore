@@ -6,6 +6,5 @@ dist/
 build/
 *.egg-info/
 .venv/
-.vscode/
 .idea/
 .DS_Store
