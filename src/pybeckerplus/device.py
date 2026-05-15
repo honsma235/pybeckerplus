@@ -3,8 +3,12 @@ import logging
 from typing import Callable, Optional, TYPE_CHECKING
 from .constants import StatusBit, StatusBitAux, DEVICE_RESPONSE_TIMEOUT, Action
 from .packet import (
-    build_action_packet, build_moveto_packet, build_identify_packet,
-    build_status_request, build_get_name_packet, build_set_name_packet
+    build_action_packet,
+    build_moveto_packet,
+    build_identify_packet,
+    build_status_request,
+    build_get_name_packet,
+    build_set_name_packet,
 )
 
 if TYPE_CHECKING:
@@ -12,10 +16,13 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+
 class CentronicDevice:
     """Representation of a Becker CentronicPlus Motor."""
-    
-    def __init__(self, mac_id: str, client: "BeckerClient", callback: Optional[Callable] = None):
+
+    def __init__(
+        self, mac_id: str, client: "BeckerClient", callback: Optional[Callable] = None
+    ):
         self.mac_id = mac_id
         self._client = client
         self.position: float = 0.0
@@ -60,7 +67,9 @@ class CentronicDevice:
 
     async def move_to(self, percentage: float):
         """Move to a specific position (0-100)."""
-        payload = build_moveto_packet(self.mac_id, percentage, self._client._get_next_cnt())
+        payload = build_moveto_packet(
+            self.mac_id, percentage, self._client._get_next_cnt()
+        )
         await self._client._send(payload)
 
     async def identify(self):
@@ -106,7 +115,9 @@ class CentronicDevice:
         self._availability_timer = None
         if self.available:
             self.available = False
-            _LOGGER.debug("Device: %s availability changed to False (Timeout)", self.mac_id)
+            _LOGGER.debug(
+                "Device: %s availability changed to False (Timeout)", self.mac_id
+            )
             if self._callback:
                 self._callback(self)
 
@@ -115,21 +126,23 @@ class CentronicDevice:
         """Return True if all initial discovery data has been received."""
         return self._got_status and self._got_info and self._got_name
 
-    def update_from_payload(self, status_bytes: bytes, position: float, rssi: Optional[int] = None):
+    def update_from_payload(
+        self, status_bytes: bytes, position: float, rssi: Optional[int] = None
+    ):
         """Update internal state from raw packet data."""
         self._mark_available()
         self._got_status = True
         if status_bytes and len(status_bytes) >= 2:
             b1 = status_bytes[0]
             b2 = status_bytes[1]
-            
+
             self.moving = bool(b1 & StatusBit.MOVING.value)
             self.upper_limit = bool(b1 & StatusBit.UPPER_LIMIT.value)
             self.lower_limit = bool(b1 & StatusBit.LOWER_LIMIT.value)
             self.blocked = bool(b1 & StatusBit.BLOCKED.value)
             self.overheated = bool(b1 & StatusBit.OVERHEATED.value)
             self.fly_screen = bool(b2 & StatusBitAux.FLY_SCREEN.value)
-        
+
         if position is not None:
             self.position = round(position, 1)
 
@@ -137,7 +150,7 @@ class CentronicDevice:
             self.rssi = rssi
 
         _LOGGER.debug("Device: %s updated", self.mac_id)
-        
+
         if self._callback:
             self._callback(self)
 
@@ -156,10 +169,12 @@ class CentronicDevice:
         self._mark_available()
         self._got_name = True
         # Strip null padding if present
-        self.name = name.rstrip('\x00')
+        self.name = name.rstrip("\x00")
         _LOGGER.debug("Device: %s new Name: %s", self.mac_id, self.name)
         if self._callback:
             self._callback(self)
 
     def __repr__(self):
-        return f"<CentronicDevice {self.mac_id} pos={self.position}% moving={self.moving}>"
+        return (
+            f"<CentronicDevice {self.mac_id} pos={self.position}% moving={self.moving}>"
+        )

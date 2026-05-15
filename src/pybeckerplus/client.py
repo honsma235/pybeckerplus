@@ -10,14 +10,15 @@ from .exceptions import BeckerTimeoutError, BeckerError, BeckerConnectionError
 
 _LOGGER = logging.getLogger(__name__)
 
+
 class BeckerClient:
     """Main interface for the Becker CentronicPlus USB stick."""
 
     def __init__(
-        self, 
-        port: str, 
+        self,
+        port: str,
         device_callback: Optional[Callable] = None,
-        on_disconnect: Optional[Callable[[Optional[Exception]], None]] = None
+        on_disconnect: Optional[Callable[[Optional[Exception]], None]] = None,
     ):
         self.port = port
         self.devices: Dict[str, CentronicDevice] = {}
@@ -84,9 +85,9 @@ class BeckerClient:
                 if not data:
                     # EOF reached - usually means the device was closed or disconnected
                     raise BeckerConnectionError("Serial connection closed (EOF)")
-                
+
                 buffer += data
-                
+
                 while buffer:
                     ack_pos = buffer.find(STICK_ACK)
                     stx_pos = buffer.find(STX)
@@ -95,7 +96,7 @@ class BeckerClient:
                     if ack_pos != -1 and (stx_pos == -1 or ack_pos < stx_pos):
                         if self._ack_waiter and not self._ack_waiter.done():
                             self._ack_waiter.set_result(True)
-                        buffer = buffer[ack_pos + len(STICK_ACK):]
+                        buffer = buffer[ack_pos + len(STICK_ACK) :]
                         continue
 
                     # 2. Handle Framed Packets (\x02 ... \x03)
@@ -103,22 +104,26 @@ class BeckerClient:
                         etx_pos = buffer.find(ETX, stx_pos)
                         if etx_pos != -1:
                             try:
-                                packet_hex = buffer[stx_pos + 1 : etx_pos].decode("ascii")
+                                packet_hex = buffer[stx_pos + 1 : etx_pos].decode(
+                                    "ascii"
+                                )
                                 _LOGGER.debug(" <-- USB : %s", packet_hex)
                                 self._handle_packet(packet_hex)
-                            except (UnicodeDecodeError, ValueError):
-                                _LOGGER.debug("Received invalid data in framed packet; discarding")
+                            except UnicodeDecodeError, ValueError:
+                                _LOGGER.debug(
+                                    "Received invalid data in framed packet; discarding"
+                                )
                             except Exception:
                                 _LOGGER.exception("Error processing serial packet")
-                            buffer = buffer[etx_pos + 1:]
+                            buffer = buffer[etx_pos + 1 :]
                             continue
                         else:
-                            # Found STX but no ETX yet. 
+                            # Found STX but no ETX yet.
                             if stx_pos > 0:
                                 # Discard leading junk and re-process immediately
                                 buffer = buffer[stx_pos:]
                                 continue
-                            
+
                             # Guard against orphaned STX: discard if buffer is excessively long
                             # or if another STX appears later in the buffer (resync).
                             if len(buffer) > 512 or buffer.find(STX, 1) != -1:
@@ -128,15 +133,15 @@ class BeckerClient:
 
                             buffer = buffer[stx_pos:]
                             break
-                    
-                    # 3. No full ACK or packet found. 
+
+                    # 3. No full ACK or packet found.
                     # Keep trailing bytes that could be the start of a STICK_ACK (\r\n\r\n)
                     keep_idx = len(buffer)
                     for i in range(len(STICK_ACK) - 1, 0, -1):
                         if buffer.endswith(STICK_ACK[:i]):
                             keep_idx = len(buffer) - i
                             break
-                    
+
                     buffer = buffer[keep_idx:]
                     break
 
@@ -151,10 +156,14 @@ class BeckerClient:
         """Handle cleanup when the connection is lost."""
         self._connection_error = exc
         # Fail any pending waiters immediately so they don't time out
-        for waiter in [self._ack_waiter, self._stick_info_waiter, self._stick_fw_waiter]:
+        for waiter in [
+            self._ack_waiter,
+            self._stick_info_waiter,
+            self._stick_fw_waiter,
+        ]:
             if waiter and not waiter.done():
                 waiter.set_exception(exc or BeckerConnectionError("Disconnected"))
-        
+
         if self._on_disconnect:
             self._on_disconnect(exc)
 
@@ -168,7 +177,11 @@ class BeckerClient:
                 case "stick_info":
                     self.stick_mac = data["mac_id"]
                     self.stick_install_id = data["install_id"]
-                    _LOGGER.debug("Stick MAC: %s, Install ID: %s", self.stick_fw, self.stick_install_id)
+                    _LOGGER.debug(
+                        "Stick MAC: %s, Install ID: %s",
+                        self.stick_fw,
+                        self.stick_install_id,
+                    )
                     if self._stick_info_waiter and not self._stick_info_waiter.done():
                         self._stick_info_waiter.set_result(True)
 
@@ -181,12 +194,16 @@ class BeckerClient:
                 case "device":
                     mac_id = data["mac_id"]
                     if mac_id not in self.devices:
-                        self.devices[mac_id] = CentronicDevice(mac_id, self, self._wrapped_callback)
+                        self.devices[mac_id] = CentronicDevice(
+                            mac_id, self, self._wrapped_callback
+                        )
                     device = self.devices[mac_id]
 
                     # Update the specific attributes provided in this packet
                     if "status" in data:
-                        device.update_from_payload(data["status"], data.get("pos"), data.get("rssi"))
+                        device.update_from_payload(
+                            data["status"], data.get("pos"), data.get("rssi")
+                        )
                     if "sn" in data:
                         device.update_info(data["sn"], data["fw"])
                     if "name" in data:
@@ -199,7 +216,9 @@ class BeckerClient:
         """Send packet and wait for stick acknowledgment."""
         if not self._writer:
             if self._connection_error:
-                raise BeckerConnectionError("Connection lost") from self._connection_error
+                raise BeckerConnectionError(
+                    "Connection lost"
+                ) from self._connection_error
             raise BeckerError("Not connected")
 
         async with self._lock:
@@ -211,7 +230,7 @@ class BeckerClient:
 
             self._ack_waiter = asyncio.get_running_loop().create_future()
             packet = wrap_packet(payload_hex)
-            
+
             _LOGGER.debug(" --> USB %s", payload_hex)
             self._writer.write(packet)
             await self._writer.drain()
@@ -272,19 +291,21 @@ class BeckerClient:
         loop = asyncio.get_running_loop()
         self._stick_info_waiter = loop.create_future()
         self._stick_fw_waiter = loop.create_future()
-        
+
         try:
             # Send requests sequentially; each waits for a serial ACK
             await self._send(build_stick_fw_request())
             await self._send(build_stick_info_request())
-            
+
             # Wait for the actual data packets to arrive from the read loop
             await asyncio.wait_for(
                 asyncio.gather(self._stick_info_waiter, self._stick_fw_waiter),
-                timeout=2.0
+                timeout=2.0,
             )
         except asyncio.TimeoutError as e:
-            raise BeckerTimeoutError("Timed out waiting for stick info/firmware response") from e
+            raise BeckerTimeoutError(
+                "Timed out waiting for stick info/firmware response"
+            ) from e
         finally:
             self._stick_info_waiter = None
             self._stick_fw_waiter = None

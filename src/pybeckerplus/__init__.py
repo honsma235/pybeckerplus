@@ -8,6 +8,11 @@ from .constants import Action, StatusBit
 from .exceptions import BeckerError, BeckerTimeoutError, BeckerParseError
 
 __all__ = [
-    "BeckerClient", "CentronicDevice", "Action", 
-    "StatusBit", "BeckerError", "BeckerTimeoutError", "BeckerParseError"
+    "BeckerClient",
+    "CentronicDevice",
+    "Action",
+    "StatusBit",
+    "BeckerError",
+    "BeckerTimeoutError",
+    "BeckerParseError",
 ]

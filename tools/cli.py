@@ -1,3 +1,5 @@
+# ruff: noqa: T201
+
 import argparse
 import asyncio
 import logging
@@ -7,22 +9,29 @@ import shlex
 from typing import Optional
 
 # Add the src directory to sys.path to allow running the tool without installing the library
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+)
 
 from pybeckerplus import BeckerClient, Action
 
 MONITOR_ENABLED = True
 
+
 def print_device(device):
-    print(f"Mac: {device.mac_id} ({device.name}), "
-            f"SN: {device.serial_number}, FW: {device.firmware_version}), "
-            f"Pos={device.position}%, RSSI={device.rssi}, Moving={device.moving}, "
-            f"Limits(U={int(device.upper_limit)} L={int(device.lower_limit)}), "
-            f"Status(Block={int(device.blocked)} OverH={int(device.overheated)}  Fly={int(device.fly_screen)})")
+    print(
+        f"Mac: {device.mac_id} ({device.name}), "
+        f"SN: {device.serial_number}, FW: {device.firmware_version}), "
+        f"Pos={device.position}%, RSSI={device.rssi}, Moving={device.moving}, "
+        f"Limits(U={int(device.upper_limit)} L={int(device.lower_limit)}), "
+        f"Status(Block={int(device.blocked)} OverH={int(device.overheated)}  Fly={int(device.fly_screen)})"
+    )
+
 
 def get_target(mac_input: str) -> Optional[str]:
     """Helper to convert 'all' keyword to None for the client."""
     return None if mac_input.lower() == "all" else mac_input
+
 
 def device_updated(device):
     """Callback triggered whenever a device state changes."""
@@ -31,14 +40,15 @@ def device_updated(device):
         print_device(device)
         print("beckerplus> ", end="", flush=True)
 
+
 async def interactive_shell(client):
     """Main CLI logic."""
     global MONITOR_ENABLED
     loop = asyncio.get_event_loop()
-    
+
     print("\n--- Becker Centronic Plus Interactive Shell ---")
     print("Type 'help' for commands, 'exit' to quit.\n")
-    
+
     # Trigger initial discovery
     discovery_task = asyncio.create_task(client.start_discovery())
 
@@ -47,13 +57,13 @@ async def interactive_shell(client):
             cmd_line = await loop.run_in_executor(None, input, "beckerplus> ")
             if not cmd_line.strip():
                 continue
-            
+
             parts = shlex.split(cmd_line)
             cmd = parts[0].lower()
 
             if cmd in ["exit", "quit"]:
                 break
-            
+
             elif cmd == "help":
                 print("""
 Commands:
@@ -73,9 +83,11 @@ Commands:
 """)
 
             elif cmd == "list":
-                print(f"Stick Info: MAC={client.stick_mac or 'Unknown'}, "
-                      f"InstallID={client.stick_install_id or 'Unknown'}, "
-                      f"FW={client.stick_fw or 'Unknown'}")
+                print(
+                    f"Stick Info: MAC={client.stick_mac or 'Unknown'}, "
+                    f"InstallID={client.stick_install_id or 'Unknown'}, "
+                    f"FW={client.stick_fw or 'Unknown'}"
+                )
                 print("-" * 60)
                 if not client.devices:
                     print("No devices discovered.")
@@ -143,7 +155,7 @@ Commands:
             else:
                 print(f"Unknown command or missing arguments: {cmd}")
 
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             break
         except Exception as e:
             print(f"Error: {e}")
@@ -156,11 +168,16 @@ Commands:
                 except asyncio.CancelledError:
                     pass
 
+
 async def main():
     """Single entry point to manage the event loop lifecycle."""
-    parser = argparse.ArgumentParser(description="Becker Centronic Plus Interactive Tool")
+    parser = argparse.ArgumentParser(
+        description="Becker Centronic Plus Interactive Tool"
+    )
     parser.add_argument("port", help="Serial port (e.g. COM3 or /dev/ttyUSB0)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging"
+    )
 
     args = parser.parse_args()
 
@@ -177,6 +194,7 @@ async def main():
     finally:
         await client.close()
         print("Done.")
+
 
 if __name__ == "__main__":
     try:
