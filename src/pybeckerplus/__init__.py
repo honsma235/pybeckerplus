@@ -3,16 +3,16 @@
 __version__ = "0.2.0"
 
 from .client import BeckerClient
-from .device import CentronicDevice
 from .constants import Action, StatusBit
-from .exceptions import BeckerError, BeckerTimeoutError, BeckerParseError
+from .device import CentronicDevice
+from .exceptions import BeckerError, BeckerParseError, BeckerTimeoutError
 
 __all__ = [
-    "BeckerClient",
-    "CentronicDevice",
     "Action",
-    "StatusBit",
+    "BeckerClient",
     "BeckerError",
-    "BeckerTimeoutError",
     "BeckerParseError",
+    "BeckerTimeoutError",
+    "CentronicDevice",
+    "StatusBit",
 ]

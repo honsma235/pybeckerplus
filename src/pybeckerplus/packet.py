@@ -1,7 +1,8 @@
+import logging
 import re
 import struct
-import logging
-from .constants import Action, PairingAction, STX, ETX
+
+from .constants import ETX, STX, Action, PairingAction
 from .exceptions import BeckerParseError
 
 _LOGGER = logging.getLogger(__name__)

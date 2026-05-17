@@ -1,14 +1,18 @@
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Callable, Optional, TYPE_CHECKING
-from .constants import StatusBit, StatusBitAux, DEVICE_RESPONSE_TIMEOUT, Action
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+from .constants import DEVICE_RESPONSE_TIMEOUT, Action, StatusBit, StatusBitAux
 from .packet import (
     build_action_packet,
-    build_moveto_packet,
-    build_identify_packet,
-    build_status_request,
     build_get_name_packet,
+    build_identify_packet,
+    build_moveto_packet,
     build_set_name_packet,
+    build_status_request,
 )
 
 if TYPE_CHECKING:
@@ -21,7 +25,10 @@ class CentronicDevice:
     """Representation of a Becker CentronicPlus Motor."""
 
     def __init__(
-        self, mac_id: str, client: "BeckerClient", callback: Optional[Callable] = None
+        self,
+        mac_id: str,
+        client: BeckerClient,
+        callback: Callable[[CentronicDevice], None] | None = None,
     ):
         self.mac_id = mac_id
         self._client = client
@@ -32,13 +39,13 @@ class CentronicDevice:
         self.blocked: bool = False
         self.overheated: bool = False
         self.fly_screen: bool = False
-        self.rssi: Optional[int] = None
-        self.serial_number: Optional[str] = None
-        self.firmware_version: Optional[str] = None
-        self.name: Optional[str] = None
+        self.rssi: int | None = None
+        self.serial_number: str | None = None
+        self.firmware_version: str | None = None
+        self.name: str | None = None
         self.available: bool = True
 
-        self._availability_timer: Optional[asyncio.TimerHandle] = None
+        self._availability_timer: asyncio.TimerHandle | None = None
 
         # Discovery flags
         self._got_status = False
@@ -127,7 +134,7 @@ class CentronicDevice:
         return self._got_status and self._got_info and self._got_name
 
     def update_from_payload(
-        self, status_bytes: bytes, position: float, rssi: Optional[int] = None
+        self, status_bytes: bytes, position: float | None, rssi: int | None = None
     ):
         """Update internal state from raw packet data."""
         self._mark_available()

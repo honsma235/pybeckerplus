@@ -3,22 +3,21 @@
 import argparse
 import asyncio
 import logging
-import sys
 import os
 import shlex
-from typing import Optional
+import sys
 
 # Add the src directory to sys.path to allow running the tool without installing the library
 sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
 )
 
-from pybeckerplus import BeckerClient, Action
+from pybeckerplus import Action, BeckerClient, CentronicDevice
 
 MONITOR_ENABLED = True
 
 
-def print_device(device):
+def print_device(device: CentronicDevice):
     print(
         f"Mac: {device.mac_id} ({device.name}), "
         f"SN: {device.serial_number}, FW: {device.firmware_version}), "
@@ -28,20 +27,20 @@ def print_device(device):
     )
 
 
-def get_target(mac_input: str) -> Optional[str]:
+def get_target(mac_input: str) -> str | None:
     """Helper to convert 'all' keyword to None for the client."""
     return None if mac_input.lower() == "all" else mac_input
 
 
-def device_updated(device):
+def device_updated(device: CentronicDevice):
     """Callback triggered whenever a device state changes."""
     if MONITOR_ENABLED:
-        print(f"\n[UPDATE] ", end="")
+        print("\n[UPDATE] ", end="")
         print_device(device)
         print("beckerplus> ", end="", flush=True)
 
 
-async def interactive_shell(client):
+async def interactive_shell(client: BeckerClient):
     """Main CLI logic."""
     global MONITOR_ENABLED
     loop = asyncio.get_event_loop()
@@ -64,7 +63,7 @@ async def interactive_shell(client):
             if cmd in ["exit", "quit"]:
                 break
 
-            elif cmd == "help":
+            if cmd == "help":
                 print("""
 Commands:
   list                - List all discovered devices
@@ -155,7 +154,7 @@ Commands:
             else:
                 print(f"Unknown command or missing arguments: {cmd}")
 
-        except EOFError, KeyboardInterrupt:
+        except (EOFError, KeyboardInterrupt):
             break
         except Exception as e:
             print(f"Error: {e}")
