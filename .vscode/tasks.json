@@ -1,0 +1,29 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Deploy and Install pybeckerplus_dev on local HA test machine",
+            "type": "shell",
+            "command": "%SSH_DEV% \"rm -rf %TARGET_DIR% && mkdir -p %TARGET_DIR%\" && tar -cf - --exclude=\".git\" --exclude=\"__pycache__\" --exclude=\".vscode\" . | %SSH_DEV% \"tar -xf - -C %TARGET_DIR%\" && %SSH_DEV% \"python3 -m pip install --root-user-action ignore --force-reinstall --break-system-packages %TARGET_DIR%\"",
+            "options": {
+                "shell": {
+                    "executable": "cmd.exe",
+                    "args": ["/d", "/c"]
+                },
+                "env": {
+                    "SSH_DEV": "ssh -o MACs=hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com root@ha-test.local",
+                    "TARGET_DIR": "/config/pybeckerplus_dev"
+                }
+            },
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        }
+    ]
+}

@@ -1,5 +1,4 @@
 {
-    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
     "python.languageServer": "None", // provided by ty
     "[python]": {
         "editor.defaultFormatter": "charliermarsh.ruff",
