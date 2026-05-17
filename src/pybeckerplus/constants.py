@@ -1,3 +1,5 @@
+"""Constants and Enums for the Becker CentronicPlus protocol."""
+
 from enum import Enum
 
 
@@ -7,7 +9,6 @@ class Action(Enum):
     STOP = "10"
     UP = "20"
     DOWN = "40"
-    HALT = "10"  # Alias
     PRESET_1 = "24"
     PRESET_2 = "44"
     SET_PRESET_1 = "31"
@@ -47,6 +48,9 @@ class StatusBitAux(Enum):
 STX = b"\x02"
 ETX = b"\x03"
 STICK_ACK = b"\r\n\r\n"
+
+# Timeout (seconds) to wait for a STICK_ACK when sending commands to the USB stick
+ACK_TIMEOUT = 1.0
 
 # Minimum time (seconds) to wait between sending commands to the USB stick
 COMMAND_GAP_TIME = 0.2

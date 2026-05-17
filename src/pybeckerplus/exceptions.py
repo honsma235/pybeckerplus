@@ -1,3 +1,6 @@
+"""Exceptions for the pybeckerplus library."""
+
+
 class BeckerError(Exception):
     """Base exception for pybeckerplus."""
 

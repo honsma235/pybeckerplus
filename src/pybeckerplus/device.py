@@ -1,8 +1,9 @@
+"""Representation of individual Becker CentronicPlus devices."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from .constants import DEVICE_RESPONSE_TIMEOUT, Action, StatusBit, StatusBitAux
@@ -16,6 +17,8 @@ from .packet import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from .client import BeckerClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,7 +32,8 @@ class CentronicDevice:
         mac_id: str,
         client: BeckerClient,
         callback: Callable[[CentronicDevice], None] | None = None,
-    ):
+    ) -> None:
+        """Initialize a new CentronicDevice instance."""
         self.mac_id = mac_id
         self._client = client
         self.position: float = 0.0
@@ -55,61 +59,61 @@ class CentronicDevice:
         self._callback = callback
         _LOGGER.debug("Device: %s created", self.mac_id)
 
-    async def up(self):
+    async def up(self) -> None:
         """Move device up."""
         await self.action(Action.UP)
 
-    async def down(self):
+    async def down(self) -> None:
         """Move device down."""
         await self.action(Action.DOWN)
 
-    async def stop(self):
+    async def stop(self) -> None:
         """Stop device movement."""
         await self.action(Action.STOP)
 
-    async def action(self, action: Action):
+    async def action(self, action: Action) -> None:
         """Send an action command."""
         payload = build_action_packet(self.mac_id, action)
-        await self._client._send(payload)
+        await self._client.send(payload)
 
-    async def move_to(self, percentage: float):
+    async def move_to(self, percentage: float) -> None:
         """Move to a specific position (0-100)."""
         payload = build_moveto_packet(
-            self.mac_id, percentage, self._client._get_next_cnt()
+            self.mac_id, percentage, self._client.get_next_cnt()
         )
-        await self._client._send(payload)
+        await self._client.send(payload)
 
-    async def identify(self):
+    async def identify(self) -> None:
         """Identify the device (jog)."""
         payload = build_identify_packet(self.mac_id)
-        await self._client._send(payload)
+        await self._client.send(payload)
 
-    async def request_status(self):
+    async def request_status(self) -> None:
         """Poll current status/position."""
-        payload = build_status_request(self.mac_id, self._client._get_next_cnt())
-        await self._client._send(payload)
+        payload = build_status_request(self.mac_id, self._client.get_next_cnt())
+        await self._client.send(payload)
         self.expect_response()
 
-    async def get_name(self):
+    async def get_name(self) -> None:
         """Fetch the device name."""
         payload = build_get_name_packet(self.mac_id)
-        await self._client._send(payload)
+        await self._client.send(payload)
         self.expect_response()
 
-    async def set_name(self, name: str):
+    async def set_name(self, name: str) -> None:
         """Set a new device name."""
         payload = build_set_name_packet(self.mac_id, name)
-        await self._client._send(payload)
+        await self._client.send(payload)
         self.expect_response()
 
-    def _mark_available(self):
+    def _mark_available(self) -> None:
         """Stop timeout timer and ensure device is marked available."""
         if self._availability_timer:
             self._availability_timer.cancel()
             self._availability_timer = None
         self.available = True
 
-    def expect_response(self):
+    def expect_response(self) -> None:
         """Start a timer waiting for a response. Mark unavailable if it expires."""
         if self._availability_timer:
             self._availability_timer.cancel()
@@ -117,7 +121,7 @@ class CentronicDevice:
             DEVICE_RESPONSE_TIMEOUT, self._handle_timeout
         )
 
-    def _handle_timeout(self):
+    def _handle_timeout(self) -> None:
         """Handle response timeout."""
         self._availability_timer = None
         if self.available:
@@ -135,11 +139,11 @@ class CentronicDevice:
 
     def update_from_payload(
         self, status_bytes: bytes, position: float | None, rssi: int | None = None
-    ):
+    ) -> None:
         """Update internal state from raw packet data."""
         self._mark_available()
         self._got_status = True
-        if status_bytes and len(status_bytes) >= 2:
+        if status_bytes and len(status_bytes) >= 2:  # noqa: PLR2004
             b1 = status_bytes[0]
             b2 = status_bytes[1]
 
@@ -161,7 +165,7 @@ class CentronicDevice:
         if self._callback:
             self._callback(self)
 
-    def update_info(self, sn: str, fw: str):
+    def update_info(self, sn: str, fw: str) -> None:
         """Update Serial Number and Firmware version."""
         self._mark_available()
         self._got_info = True
@@ -171,7 +175,7 @@ class CentronicDevice:
         if self._callback:
             self._callback(self)
 
-    def update_name(self, name: str):
+    def update_name(self, name: str) -> None:
         """Update the human-readable name."""
         self._mark_available()
         self._got_name = True
@@ -180,8 +184,3 @@ class CentronicDevice:
         _LOGGER.debug("Device: %s new Name: %s", self.mac_id, self.name)
         if self._callback:
             self._callback(self)
-
-    def __repr__(self):
-        return (
-            f"<CentronicDevice {self.mac_id} pos={self.position}% moving={self.moving}>"
-        )

@@ -1,14 +1,17 @@
+"""Client implementation for interacting with the Becker CentronicPlus USB stick."""
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from asyncio import StreamReader, StreamWriter
-from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import serialx
 
-from .constants import COMMAND_GAP_TIME, ETX, STICK_ACK, STX, Action
+from .constants import ACK_TIMEOUT, COMMAND_GAP_TIME, ETX, STICK_ACK, STX, Action
+from .device import CentronicDevice
 from .exceptions import BeckerConnectionError, BeckerError, BeckerTimeoutError
 from .packet import (
     build_global_action_packet,
@@ -24,7 +27,7 @@ from .packet import (
 )
 
 if TYPE_CHECKING:
-    from .device import CentronicDevice
+    from collections.abc import Callable
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,7 +40,8 @@ class BeckerClient:
         port: str,
         device_callback: Callable[[CentronicDevice], None] | None = None,
         on_disconnect: Callable[[Exception | None], None] | None = None,
-    ):
+    ) -> None:
+        """Initialize the BeckerClient with port and callbacks."""
         self.port = port
         self.devices: dict[str, CentronicDevice] = {}
         self._device_callback = device_callback
@@ -56,7 +60,7 @@ class BeckerClient:
         self._last_send_time = 0.0
         self._connection_error: Exception | None = None
 
-    async def connect(self):
+    async def connect(self) -> None:
         """Establish serial connection and start background reader."""
         self._reader, self._writer = await serialx.open_serial_connection(
             url=self.port, baudrate=115200
@@ -70,30 +74,61 @@ class BeckerClient:
         self._last_send_time = asyncio.get_running_loop().time()
         _LOGGER.debug("Connected to Becker USB stick on %s", self.port)
 
-    async def close(self):
+    async def close(self) -> None:
         """Close the serial connection."""
         if self._read_task:
             self._read_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._read_task
-            except asyncio.CancelledError:
-                pass
         if self._writer:
             self._writer.close()
             await self._writer.wait_closed()
         self._reader = None
         self._writer = None
 
-    def _get_next_cnt(self) -> int:
+    def get_next_cnt(self) -> int:
+        """Increment and return the next 16-bit command counter."""
         self._cnt = (self._cnt + 1) & 0xFFFF
         return self._cnt
 
-    def _wrapped_callback(self, device: CentronicDevice):
+    async def send(self, payload_hex: str) -> None:
+        """Send packet and wait for stick acknowledgment."""
+        if not self._writer:
+            if self._connection_error:
+                msg = "Connection lost"
+                raise BeckerConnectionError(msg) from self._connection_error
+            msg = "Not connected"
+            raise BeckerError(msg)
+
+        async with self._lock:
+            # Simple rate limiting: 100ms gap between commands
+            now = asyncio.get_running_loop().time()
+            delay = self._last_send_time + COMMAND_GAP_TIME - now
+            if delay > 0:
+                await asyncio.sleep(delay)
+
+            self._ack_waiter = asyncio.get_running_loop().create_future()
+            packet = wrap_packet(payload_hex)
+
+            _LOGGER.debug(" --> USB %s", payload_hex)
+            self._writer.write(packet)
+            await self._writer.drain()
+
+            try:
+                await asyncio.wait_for(self._ack_waiter, timeout=ACK_TIMEOUT)
+            except TimeoutError as exc:
+                msg = "Stick did not acknowledge command"
+                raise BeckerTimeoutError(msg) from exc
+            finally:
+                self._ack_waiter = None
+                self._last_send_time = asyncio.get_running_loop().time()
+
+    def _wrapped_callback(self, device: CentronicDevice) -> None:
         """Notify listener only if the device has finished initial discovery."""
         if device.is_ready and self._device_callback:
             self._device_callback(device)
 
-    async def _read_loop(self):
+    async def _read_loop(self) -> None:  # noqa: PLR0912, PLR0915
         """Continuously read from serial, parsing packets and watching for ACKs."""
         buffer = b""
         while True:
@@ -105,7 +140,8 @@ class BeckerClient:
                 data = await self._reader.read(1024)
                 if not data:
                     # EOF reached - usually means the device was closed or disconnected
-                    raise BeckerConnectionError("Serial connection closed (EOF)")
+                    msg = "Serial connection closed (EOF)"
+                    raise BeckerConnectionError(msg)  # noqa: TRY301
 
                 buffer += data
 
@@ -113,7 +149,8 @@ class BeckerClient:
                     ack_pos = buffer.find(STICK_ACK)
                     stx_pos = buffer.find(STX)
 
-                    # 1. Handle Stick Acknowledgments appearing before or without packets
+                    # 1. Handle Stick Acknowledgments appearing before or without
+                    # packets
                     if ack_pos != -1 and (stx_pos == -1 or ack_pos < stx_pos):
                         if self._ack_waiter and not self._ack_waiter.done():
                             self._ack_waiter.set_result(True)
@@ -144,9 +181,9 @@ class BeckerClient:
                             buffer = buffer[stx_pos:]
                             continue
 
-                        # Guard against orphaned STX: discard if buffer is excessively long
-                        # or if another STX appears later in the buffer (resync).
-                        if len(buffer) > 512 or buffer.find(STX, 1) != -1:
+                        # Guard against orphaned STX: discard if buffer is excessively
+                        # long or if another STX appears later in the buffer (resync).
+                        if len(buffer) > 512 or buffer.find(STX, 1) != -1:  # noqa: PLR2004
                             _LOGGER.debug("Discarding orphaned or stale STX marker")
                             buffer = buffer[1:]
                             continue
@@ -154,8 +191,8 @@ class BeckerClient:
                         buffer = buffer[stx_pos:]
                         break
 
-                    # 3. No full ACK or packet found.
-                    # Keep trailing bytes that could be the start of a STICK_ACK (\r\n\r\n)
+                    # 3. No full ACK or packet found. Keep trailing bytes that could
+                    # be the start of a STICK_ACK (\r\n\r\n)
                     keep_idx = len(buffer)
                     for i in range(len(STICK_ACK) - 1, 0, -1):
                         if buffer.endswith(STICK_ACK[:i]):
@@ -168,11 +205,11 @@ class BeckerClient:
             except Exception as exc:
                 if isinstance(exc, asyncio.CancelledError):
                     break
-                _LOGGER.error("Fatal error in serial read loop: %s", exc)
+                _LOGGER.exception("Fatal error in serial read loop")
                 self._handle_disconnect(exc)
                 break
 
-    def _handle_disconnect(self, exc: Exception | None):
+    def _handle_disconnect(self, exc: Exception | None) -> None:
         """Handle cleanup when the connection is lost."""
         self._connection_error = exc
         # Fail any pending waiters immediately so they don't time out
@@ -187,7 +224,7 @@ class BeckerClient:
         if self._on_disconnect:
             self._on_disconnect(exc)
 
-    def _handle_packet(self, packet_hex: str):
+    def _handle_packet(self, packet_hex: str) -> None:
         """Route parsed data to device objects."""
         if not (data := parse_packet(packet_hex)):
             return
@@ -214,8 +251,6 @@ class BeckerClient:
                 case "device":
                     mac_id = data["mac_id"]
                     if mac_id not in self.devices:
-                        from .device import CentronicDevice
-
                         self.devices[mac_id] = CentronicDevice(
                             mac_id, self, self._wrapped_callback
                         )
@@ -234,38 +269,7 @@ class BeckerClient:
         except Exception:
             _LOGGER.exception("Unexpected error processing packet: %s", packet_hex)
 
-    async def _send(self, payload_hex: str, timeout: float = 1.0):
-        """Send packet and wait for stick acknowledgment."""
-        if not self._writer:
-            if self._connection_error:
-                raise BeckerConnectionError(
-                    "Connection lost"
-                ) from self._connection_error
-            raise BeckerError("Not connected")
-
-        async with self._lock:
-            # Simple rate limiting: 100ms gap between commands
-            now = asyncio.get_running_loop().time()
-            delay = self._last_send_time + COMMAND_GAP_TIME - now
-            if delay > 0:
-                await asyncio.sleep(delay)
-
-            self._ack_waiter = asyncio.get_running_loop().create_future()
-            packet = wrap_packet(payload_hex)
-
-            _LOGGER.debug(" --> USB %s", payload_hex)
-            self._writer.write(packet)
-            await self._writer.drain()
-
-            try:
-                await asyncio.wait_for(self._ack_waiter, timeout=timeout)
-            except TimeoutError:
-                raise BeckerTimeoutError("Stick did not acknowledge command")
-            finally:
-                self._ack_waiter = None
-                self._last_send_time = asyncio.get_running_loop().time()
-
-    def _trigger_expectation(self, mac_id: str | None):
+    def _trigger_expectation(self, mac_id: str | None) -> None:
         """Inform devices that an immediate response is expected."""
         if mac_id is None:
             for device in self.devices.values():
@@ -285,29 +289,29 @@ class BeckerClient:
             return False
         return all(device.is_ready for device in self.devices.values())
 
-    async def global_action(self, action: Action):
+    async def global_action(self, action: Action) -> None:
         """Send a global action command to all devices."""
-        payload = build_global_action_packet(action, self._get_next_cnt())
-        await self._send(payload)
+        payload = build_global_action_packet(action, self.get_next_cnt())
+        await self.send(payload)
 
-    async def global_move_to(self, percentage: float):
+    async def global_move_to(self, percentage: float) -> None:
         """Move all devices to a specific position."""
-        payload = build_global_moveto_packet(percentage, self._get_next_cnt())
-        await self._send(payload)
+        payload = build_global_moveto_packet(percentage, self.get_next_cnt())
+        await self.send(payload)
 
-    async def global_request_status(self):
+    async def global_request_status(self) -> None:
         """Manually poll status for all devices."""
-        payload = build_global_status_request(self._get_next_cnt())
-        await self._send(payload)
+        payload = build_global_status_request(self.get_next_cnt())
+        await self.send(payload)
         self._trigger_expectation(None)
 
-    async def global_get_device_names(self):
+    async def global_get_device_names(self) -> None:
         """Request names for all devices."""
         payload = build_global_name_request()
-        await self._send(payload)
+        await self.send(payload)
         self._trigger_expectation(None)
 
-    async def update_stick_info(self):
+    async def update_stick_info(self) -> None:
         """Fetch and wait for stick MAC and Firmware info."""
         loop = asyncio.get_running_loop()
         self._stick_info_waiter = loop.create_future()
@@ -315,8 +319,8 @@ class BeckerClient:
 
         try:
             # Send requests sequentially; each waits for a serial ACK
-            await self._send(build_stick_fw_request())
-            await self._send(build_stick_info_request())
+            await self.send(build_stick_fw_request())
+            await self.send(build_stick_info_request())
 
             # Wait for the actual data packets to arrive from the read loop
             await asyncio.wait_for(
@@ -324,25 +328,21 @@ class BeckerClient:
                 timeout=2.0,
             )
         except TimeoutError as e:
-            raise BeckerTimeoutError(
-                "Timed out waiting for stick info/firmware response"
-            ) from e
+            msg = "Timed out waiting for stick info/firmware response"
+            raise BeckerTimeoutError(msg) from e
         finally:
             self._stick_info_waiter = None
             self._stick_fw_waiter = None
 
-    async def start_discovery(self):
-        """
-        Send global requests to find all devices and their states.
-        This will populate self.devices via the read loop.
-        """
+    async def start_discovery(self) -> None:
+        """Send global requests to find all devices and their states."""
         await self.update_stick_info()
         # Send discovery commands sequentially
-        await self._send(build_global_name_request())
+        await self.send(build_global_name_request())
         await asyncio.sleep(2.5)
-        await self._send(build_global_info_request(self._get_next_cnt()))
+        await self.send(build_global_info_request(self.get_next_cnt()))
         await asyncio.sleep(2.5)
-        await self._send(build_global_status_request(self._get_next_cnt()))
+        await self.send(build_global_status_request(self.get_next_cnt()))
 
     def get_device(self, mac_id: str) -> CentronicDevice | None:
         """Get device object from registry."""

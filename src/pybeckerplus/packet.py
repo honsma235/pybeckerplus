@@ -1,6 +1,11 @@
+# ruff: noqa: D100, D103
+
+from __future__ import annotations
+
 import logging
 import re
 import struct
+from typing import Any
 
 from .constants import ETX, STX, Action, PairingAction
 from .exceptions import BeckerParseError
@@ -12,7 +17,8 @@ def hex_to_bytes(hex_str: str) -> bytes:
     try:
         return bytes.fromhex(hex_str)
     except ValueError as e:
-        raise BeckerParseError(f"Invalid hexadecimal string: {hex_str}") from e
+        msg = f"Invalid hexadecimal string: {hex_str}"
+        raise BeckerParseError(msg) from e
 
 
 def bytes_to_hex(data: bytes) -> str:
@@ -27,8 +33,9 @@ def wrap_packet(payload_hex: str) -> bytes:
 def format_mac(mac: str) -> str:
     """Ensure MAC is 16 hex chars."""
     clean = mac.replace(":", "").replace("-", "").lower()
-    if len(clean) != 16:
-        raise ValueError(f"Invalid MAC ID length: {mac}")
+    if len(clean) != 16:  # noqa: PLR2004
+        msg = f"Invalid MAC ID length: {mac}"
+        raise ValueError(msg)
     return clean
 
 
@@ -52,7 +59,8 @@ def build_action_packet(mac: str, action: Action) -> str:
 
 def build_global_action_packet(action: Action, cnt: int) -> str:
     cnt_hex = format_cnt(cnt)
-    # 0709011a + 0000000000000000 + 01013400000000002000 + CMD(2) + 000000 + CNT(4) + 0501
+    # 0709011a + 0000000000000000 + 01013400000000002000 + CMD(2) + 000000
+    # + CNT(4) + 0501
     return (
         f"0709011A000000000000000001013400000000002000{action.value}000000{cnt_hex}0501"
     )
@@ -119,12 +127,13 @@ def build_get_name_packet(mac: str) -> str:
 def build_set_name_packet(mac: str, name: str) -> str:
     mac = format_mac(mac)
     name_bytes = name.encode("utf-8")
-    if len(name_bytes) > 32:
+    if len(name_bytes) > 32:  # noqa: PLR2004
         # Truncate to 32 bytes while ensuring we don't break UTF-8 multi-byte characters
         # by decoding with 'ignore' and re-encoding.
         name_bytes = name_bytes[:32].decode("utf-8", "ignore").encode("utf-8")
         _LOGGER.warning(
-            "Device name '%s' was too long and was truncated to '%s' to fit in 32 bytes (UTF-8 encoded).",
+            "Device name '%s' was too long and was truncated to '%s' to fit in 32"
+            "bytes (UTF-8 encoded).",
             name,
             name_bytes.decode("utf-8"),
         )
@@ -169,11 +178,8 @@ PATTERNS = {
 }
 
 
-def parse_packet(raw_hex: str):
-    """
-    Parses incoming hex packets and returns a dictionary of extracted data.
-    Strictly enforces protocol format via Regex.
-    """
+def parse_packet(raw_hex: str) -> dict[str, Any] | None:  # noqa: PLR0911
+    """Parse incoming hex packets and return a dictionary of extracted data."""
     for ptype, pattern in PATTERNS.items():
         match = pattern.match(raw_hex)
         if not match:

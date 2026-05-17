@@ -1,29 +1,32 @@
-# ruff: noqa: T201
+# ruff: noqa: T201, INP001, D100, D103, D401, PLR0912, PLR0915, PLR2004, BLE001, C901
 
 import argparse
 import asyncio
 import logging
-import os
 import shlex
 import sys
+from pathlib import Path
 
-# Add the src directory to sys.path to allow running the tool without installing the library
-sys.path.insert(
-    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
-)
+# Add the src directory to sys.path to allow running the tool without
+# installing the library
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+
+import contextlib
 
 from pybeckerplus import Action, BeckerClient, CentronicDevice
 
-MONITOR_ENABLED = True
+monitor_enabled = True
 
 
-def print_device(device: CentronicDevice):
+def print_device(device: CentronicDevice) -> None:
     print(
         f"Mac: {device.mac_id} ({device.name}), "
         f"SN: {device.serial_number}, FW: {device.firmware_version}), "
         f"Pos={device.position}%, RSSI={device.rssi}, Moving={device.moving}, "
         f"Limits(U={int(device.upper_limit)} L={int(device.lower_limit)}), "
-        f"Status(Block={int(device.blocked)} OverH={int(device.overheated)}  Fly={int(device.fly_screen)})"
+        f"Status(Block={int(device.blocked)} OverH={int(device.overheated)}  "
+        f"Fly={int(device.fly_screen)})"
     )
 
 
@@ -32,17 +35,16 @@ def get_target(mac_input: str) -> str | None:
     return None if mac_input.lower() == "all" else mac_input
 
 
-def device_updated(device: CentronicDevice):
+def device_updated(device: CentronicDevice) -> None:
     """Callback triggered whenever a device state changes."""
-    if MONITOR_ENABLED:
+    if monitor_enabled:
         print("\n[UPDATE] ", end="")
         print_device(device)
         print("beckerplus> ", end="", flush=True)
 
 
-async def interactive_shell(client: BeckerClient):
+async def interactive_shell(client: BeckerClient) -> None:
     """Main CLI logic."""
-    global MONITOR_ENABLED
     loop = asyncio.get_event_loop()
 
     print("\n--- Becker Centronic Plus Interactive Shell ---")
@@ -95,8 +97,8 @@ Commands:
                         print_device(dev)
 
             elif cmd == "monitor" and len(parts) > 1:
-                MONITOR_ENABLED = parts[1].lower() == "on"
-                print(f"Monitoring {'enabled' if MONITOR_ENABLED else 'disabled'}")
+                monitor_enabled = parts[1].lower() == "on"
+                print(f"Monitoring {'enabled' if monitor_enabled else 'disabled'}")
 
             elif cmd == "discovery":
                 await client.start_discovery()
@@ -162,13 +164,11 @@ Commands:
             # Cleanup background discovery if shell is exiting
             if not discovery_task.done():
                 discovery_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await discovery_task
-                except asyncio.CancelledError:
-                    pass
 
 
-async def main():
+async def main() -> None:
     """Single entry point to manage the event loop lifecycle."""
     parser = argparse.ArgumentParser(
         description="Becker Centronic Plus Interactive Tool"
