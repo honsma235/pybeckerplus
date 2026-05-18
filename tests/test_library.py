@@ -96,13 +96,14 @@ def test_device_state_logic() -> None:
     mock_client = MagicMock(spec=BeckerClient)
     device = CentronicDevice("a0dc04fffe123456", mock_client)
 
-    # Payload: Moving=True, Overheated=True, FlyScreen=True
+    # Payload: Moving=True, Overheated=True, AntiFreeze=True, FlyScreen=True
     # Status Byte 1: 0x02 (Moving) | 0x40 (Overheated) | 0x10 (Fixed) = 0x52
-    # Status Byte 2: 0x20 (FlyScreen)
-    device.update_from_payload(b"\x52\x20", 75.5, 80)
+    # Status Byte 2: 0x10 (AntiFreeze) | 0x20 (FlyScreen)
+    device.update_from_payload(b"\x52\x30", 75.5, 80)
 
     assert device.moving is True
     assert device.overheated is True
+    assert device.anti_freeze is True
     assert device.fly_screen is True
     assert device.position == 75.5
     assert device.rssi == 80

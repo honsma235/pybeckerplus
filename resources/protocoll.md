@@ -153,8 +153,10 @@ They can be used to pair additional Centronic or Centronic Plus devices, like ha
 - `31`: Set Current Position as Preset 1
 - `51`: Set Current Position as Preset 2
 - `17`: Delete both Presets
-- `D1`: Toggle Fly-screen Protection  
-Description: In the upper range of the travel path, the drive reacts significantly earlier to obstacles. This prevents damage to insect screens installed immediately below the top limit.
+- `B1`: Toggle Anti-freeze Protection
+  > Can be activated if the upper end limit is set to retracted stop. The blind does not move against the upper stop, but stops earlier to prevent freezing (e.g. when using an angled end slat).
+- `D1`: Toggle Fly-screen Protection
+  > In the upper range of the travel path, the drive reacts significantly earlier to obstacles. This prevents damage to insect screens installed immediately below the top limit.
 
 ---
 
@@ -165,12 +167,12 @@ This byte reports the physical state of the motor and primary error flags.
 
 | Bit | Hex | Logical Meaning | Description |
 | :--- | :--- | :--- | :--- |
-| 0 | `0x01` | - | Unknown, always 0 |
+| 0 | `0x01` | - | Unknown, usually 0 |
 | 1 | `0x02` | **Moving** | Indicates the motor is currently **In Motion** (1) or Stationary (0). |
 | 2 | `0x04` | **Upper Limit** | Set when the device has reached the **Upper Limit Switch** (0% Open). |
 | 3 | `0x08` | **Lower Limit** | Set when the device has reached the **Lower Limit Switch** (100% Closed). |
-| 4 | `0x10` | - | Unknown, always 1 |
-| 5 | `0x20` | - | Unknown, always 0 |
+| 4 | `0x10` | - | Unknown, usually 1 |
+| 5 | `0x20` | - | Unknown, usually 0 |
 | 6 | `0x40` | **Overheated** | Error flag: Motor has reached thermal safety limits. |
 | 7 | `0x80` | **Blocked** | Error flag: **Obstacle Detected**; motor stopped via safety cutout. |
 
@@ -179,14 +181,14 @@ This byte is used for extended/auxiliary reporting.
 
 | Bit | Hex | Logical Meaning | Description |
 | :--- | :--- | :--- | :--- |
-| 0 | `0x01` | - | Unknown, always 0 |
-| 1 | `0x02` | - | Unknown, always 0 |
-| 2 | `0x04` | - | Unknown, always 0 |
-| 3 | `0x08` | - | Unknown, always 0 |
-| 4 | `0x10` | - | Unknown, always 0 |
+| 0 | `0x01` | - | Unknown, usually 0 |
+| 1 | `0x02` | - | Unknown, usually 0 |
+| 2 | `0x04` | - | Unknown, usually 0 |
+| 3 | `0x08` | - | Unknown, usually 0 |
+| 4 | `0x10` | **Anti-freeze** | Reports if **Anti-freeze Protection** is currently enabled. |
 | 5 | `0x20` | **Fly-screen** | Reports if **Fly-screen Protection** is currently enabled. |
-| 6 | `0x40` | - | Unknown, always 0 |
-| 7 | `0x80` | - | Unknown, always 0 |
+| 6 | `0x40` | - | Unknown, usually 0 |
+| 7 | `0x80` | - | Unknown, usually 0 |
 
 ---
 

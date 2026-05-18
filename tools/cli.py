@@ -26,7 +26,7 @@ def print_device(device: CentronicDevice) -> None:
         f"Pos={device.position}%, RSSI={device.rssi}, Moving={device.moving}, "
         f"Limits(U={int(device.upper_limit)} L={int(device.lower_limit)}), "
         f"Status(Block={int(device.blocked)} OverH={int(device.overheated)}  "
-        f"Fly={int(device.fly_screen)})"
+        f"Freeze={int(device.anti_freeze)}) Fly={int(device.fly_screen)})"
     )
 
 

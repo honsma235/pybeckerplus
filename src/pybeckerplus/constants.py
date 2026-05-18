@@ -14,6 +14,7 @@ class Action(Enum):
     SET_PRESET_1 = "31"
     SET_PRESET_2 = "51"
     DELETE_PRESETS = "17"
+    TOGGLE_ANTI_FREEZE = "B1"
     TOGGLE_FLY_SCREEN = "D1"
 
 
@@ -42,6 +43,7 @@ class StatusBit(Enum):
 class StatusBitAux(Enum):
     """Status bits from the second status byte."""
 
+    ANTI_FREEZE = 0x10
     FLY_SCREEN = 0x20
 
 

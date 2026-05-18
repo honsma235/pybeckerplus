@@ -42,6 +42,7 @@ class CentronicDevice:
         self.lower_limit: bool = False
         self.blocked: bool = False
         self.overheated: bool = False
+        self.anti_freeze: bool = False
         self.fly_screen: bool = False
         self.rssi: int | None = None
         self.serial_number: str | None = None
@@ -152,6 +153,7 @@ class CentronicDevice:
             self.lower_limit = bool(b1 & StatusBit.LOWER_LIMIT.value)
             self.blocked = bool(b1 & StatusBit.BLOCKED.value)
             self.overheated = bool(b1 & StatusBit.OVERHEATED.value)
+            self.anti_freeze = bool(b2 & StatusBitAux.ANTI_FREEZE.value)
             self.fly_screen = bool(b2 & StatusBitAux.FLY_SCREEN.value)
 
         if position is not None:
