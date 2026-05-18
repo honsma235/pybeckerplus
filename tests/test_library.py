@@ -1,5 +1,5 @@
-# ty:ignore[not-subscriptable]
 # ruff: noqa: S101, D100, PLR2004, F403, F405, ERA001, INP001
+# ty:ignore[not-subscriptable]
 
 from unittest.mock import MagicMock
 

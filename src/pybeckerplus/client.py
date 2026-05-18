@@ -80,6 +80,10 @@ class BeckerClient:
             self._read_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._read_task
+
+        # Ensure all pending command waiters are failed immediately upon closing
+        self._handle_disconnect(None)
+
         if self._writer:
             self._writer.close()
             await self._writer.wait_closed()
@@ -140,8 +144,11 @@ class BeckerClient:
                 data = await self._reader.read(1024)
                 if not data:
                     # EOF reached - usually means the device was closed or disconnected
-                    msg = "Serial connection closed (EOF)"
-                    raise BeckerConnectionError(msg)  # noqa: TRY301
+                    _LOGGER.debug("Serial connection closed (EOF)")
+                    self._handle_disconnect(
+                        BeckerConnectionError("Serial connection closed (EOF)")
+                    )
+                    break
 
                 buffer += data
 
@@ -149,18 +156,32 @@ class BeckerClient:
                     ack_pos = buffer.find(STICK_ACK)
                     stx_pos = buffer.find(STX)
 
-                    # 1. Handle Stick Acknowledgments appearing before or without
-                    # packets
-                    if ack_pos != -1 and (stx_pos == -1 or ack_pos < stx_pos):
+                    # 1. Handle Stick Acknowledgments
+                    # (high priority, can be interleaved)
+                    if ack_pos != -1:
                         if self._ack_waiter and not self._ack_waiter.done():
                             self._ack_waiter.set_result(True)
-                        buffer = buffer[ack_pos + len(STICK_ACK) :]
+                        # Remove the ACK byte. We keep data before it in case it's
+                        # embedded in a frame. Leading junk is handled by
+                        # frame processing or the final buffer prune.
+                        buffer = buffer[:ack_pos] + buffer[ack_pos + len(STICK_ACK) :]
                         continue
 
                     # 2. Handle Framed Packets (\x02 ... \x03)
                     if stx_pos != -1:
+                        # Discard leading junk before the STX
+                        if stx_pos > 0:
+                            buffer = buffer[stx_pos:]
+                            continue
+
                         etx_pos = buffer.find(ETX, stx_pos)
                         if etx_pos != -1:
+                            # Resync: if there's a later STX before this ETX, skip to it
+                            last_stx = buffer.rfind(STX, stx_pos, etx_pos)
+                            if last_stx > stx_pos:
+                                buffer = buffer[last_stx:]
+                                continue
+
                             try:
                                 packet_hex = buffer[stx_pos + 1 : etx_pos].decode(
                                     "ascii"
@@ -175,20 +196,14 @@ class BeckerClient:
                                 _LOGGER.exception("Error processing serial packet")
                             buffer = buffer[etx_pos + 1 :]
                             continue
-                        # Found STX but no ETX yet.
-                        if stx_pos > 0:
-                            # Discard leading junk and re-process immediately
-                            buffer = buffer[stx_pos:]
-                            continue
 
-                        # Guard against orphaned STX: discard if buffer is excessively
-                        # long or if another STX appears later in the buffer (resync).
+                        # STX but no ETX yet. Guard against orphaned STX: discard if
+                        # buffer is excessively long or if another STX appears later.
                         if len(buffer) > 512 or buffer.find(STX, 1) != -1:  # noqa: PLR2004
                             _LOGGER.debug("Discarding orphaned or stale STX marker")
                             buffer = buffer[1:]
                             continue
 
-                        buffer = buffer[stx_pos:]
                         break
 
                     # 3. No full ACK or packet found. Keep trailing bytes that could
@@ -203,8 +218,6 @@ class BeckerClient:
                     break
 
             except Exception as exc:
-                if isinstance(exc, asyncio.CancelledError):
-                    break
                 _LOGGER.exception("Fatal error in serial read loop")
                 self._handle_disconnect(exc)
                 break
