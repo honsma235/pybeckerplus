@@ -30,14 +30,14 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-class CentronicDevice:
+class CentronicPlusDevice:
     """Representation of a Becker CentronicPlus Motor."""
 
     def __init__(
         self,
         mac_id: str,
         client: BeckerClient,
-        callback: Callable[[CentronicDevice], None] | None = None,
+        callback: Callable[[CentronicPlusDevice], None] | None = None,
     ) -> None:
         """Initialize a new CentronicDevice instance."""
         self.mac_id = mac_id

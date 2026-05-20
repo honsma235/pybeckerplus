@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 from pybeckerplus.client import BeckerClient
 from pybeckerplus.constants import Action, PairingAction, StatusBit
-from pybeckerplus.device import CentronicDevice
+from pybeckerplus.device import CentronicPlusDevice
 from pybeckerplus.packet import *
 
 
@@ -94,7 +94,7 @@ def test_parse_stick_responses() -> None:
 def test_device_state_logic() -> None:
     """Test that the CentronicDevice object correctly interprets status bits."""
     mock_client = MagicMock(spec=BeckerClient)
-    device = CentronicDevice("a0dc04fffe123456", mock_client)
+    device = CentronicPlusDevice("a0dc04fffe123456", mock_client)
 
     # Payload: Moving=True, Overheated=True, AntiFreeze=True, FlyScreen=True
     # Status Byte 1: 0x02 (Moving) | 0x40 (Overheated) | 0x10 (Fixed) = 0x52

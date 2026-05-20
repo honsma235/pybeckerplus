@@ -8,7 +8,7 @@ import pytest
 
 from pybeckerplus.client import BeckerClient
 from pybeckerplus.constants import Action
-from pybeckerplus.device import CentronicDevice
+from pybeckerplus.device import CentronicPlusDevice
 
 
 @pytest.mark.asyncio
@@ -19,7 +19,7 @@ async def test_device_activity_polling_backoff() -> None:
     mock_client.send = AsyncMock()
     mock_client.get_next_cnt.return_value = 1
 
-    device = CentronicDevice("a0dc04fffe123456", mock_client)
+    device = CentronicPlusDevice("a0dc04fffe123456", mock_client)
     device.moving = True
 
     # Track sleep durations to verify backoff logic
@@ -60,7 +60,7 @@ async def test_device_polling_exit_on_timeout() -> None:
     mock_client.enable_polling = True
     mock_client.send = AsyncMock()
 
-    device = CentronicDevice("a0dc04fffe123456", mock_client)
+    device = CentronicPlusDevice("a0dc04fffe123456", mock_client)
     device.moving = True  # Keep it "moving" so it doesn't exit naturally
 
     # Mock time to simulate 11 minutes passing immediately

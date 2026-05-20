@@ -18,7 +18,7 @@ from pybeckerplus.constants import (
     STX,
     Action,
 )
-from pybeckerplus.device import CentronicDevice
+from pybeckerplus.device import CentronicPlusDevice
 from pybeckerplus.exceptions import (
     BeckerConnectionError,
     BeckerError,
@@ -49,14 +49,14 @@ class BeckerClient:
     def __init__(
         self,
         port: str,
-        device_callback: Callable[[CentronicDevice], None] | None = None,
+        device_callback: Callable[[CentronicPlusDevice], None] | None = None,
         on_disconnect: Callable[[Exception | None], None] | None = None,
         *,
         enable_polling: bool = False,
     ) -> None:
         """Initialize the BeckerClient with port and callbacks."""
         self.port = port
-        self.devices: dict[str, CentronicDevice] = {}
+        self.devices: dict[str, CentronicPlusDevice] = {}
         self._device_callback = device_callback
         self._on_disconnect = on_disconnect
         self.stick_mac: str | None = None
@@ -147,7 +147,7 @@ class BeckerClient:
                 self._ack_waiter = None
                 self._last_send_time = asyncio.get_running_loop().time()
 
-    def _wrapped_callback(self, device: CentronicDevice) -> None:
+    def _wrapped_callback(self, device: CentronicPlusDevice) -> None:
         """Notify listener only if the device has finished initial discovery."""
         if device.is_ready and self._device_callback:
             self._device_callback(device)
@@ -284,7 +284,7 @@ class BeckerClient:
                 case "device":
                     mac_id = data["mac_id"]
                     if mac_id not in self.devices:
-                        self.devices[mac_id] = CentronicDevice(
+                        self.devices[mac_id] = CentronicPlusDevice(
                             mac_id, self, self._wrapped_callback
                         )
                     device = self.devices[mac_id]
@@ -437,6 +437,6 @@ class BeckerClient:
         except Exception:
             _LOGGER.exception("Error in global monitoring loop")
 
-    def get_device(self, mac_id: str) -> CentronicDevice | None:
+    def get_device(self, mac_id: str) -> CentronicPlusDevice | None:
         """Get device object from registry."""
         return self.devices.get(format_mac(mac_id))

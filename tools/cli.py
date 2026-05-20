@@ -12,12 +12,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 
-from pybeckerplus import Action, BeckerClient, CentronicDevice
+from pybeckerplus import Action, BeckerClient, CentronicPlusDevice
 
 live_status_enabled = True
 
 
-def print_device(device: CentronicDevice) -> None:
+def print_device(device: CentronicPlusDevice) -> None:
     print(
         f"MAC: {device.mac_id} ({device.name or 'No Name'}), "
         f"SN: {device.serial_number}, FW: {device.firmware_version}), "
@@ -33,7 +33,7 @@ def get_target(mac_input: str) -> str | None:
     return None if mac_input.lower() == "all" else mac_input
 
 
-def device_updated(device: CentronicDevice) -> None:
+def device_updated(device: CentronicPlusDevice) -> None:
     """Callback triggered whenever a device state changes."""
     if live_status_enabled:
         print("\n[UPDATE] ", end="")
