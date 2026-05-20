@@ -13,7 +13,7 @@ A Python library implementing the Becker Centronic Plus USB protocol using `asyn
 - **Global Discovery**: Support for mesh-wide status and info requests.
 
 ## Documentation
-For detailed information about the communication protocol, see the [Protocol Description](resources/protocoll.md).
+For detailed information about the communication protocol, see the [Protocol Description](resources/protocol.md).
 
 ## CLI Usage
 You can test your USB stick directly from the command line:

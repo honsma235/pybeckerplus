@@ -93,6 +93,12 @@ def build_status_request(mac: str, cnt: int) -> str:
     return f"0701011A{mac}0101340000000080A00000000000{cnt_hex}0501"
 
 
+def build_info_request(mac: str, cnt: int) -> str:
+    mac = format_mac(mac)
+    cnt_hex = format_cnt(cnt)
+    return f"07010119{mac}01013400000000510000000000{cnt_hex}0501"
+
+
 def build_global_status_request(cnt: int) -> str:
     cnt_hex = format_cnt(cnt)
     return f"0709011A00000000000000000101340000000080A00000000000{cnt_hex}0501"

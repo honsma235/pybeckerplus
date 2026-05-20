@@ -11,6 +11,7 @@ from .packet import (
     build_action_packet,
     build_get_name_packet,
     build_identify_packet,
+    build_info_request,
     build_moveto_packet,
     build_set_name_packet,
     build_status_request,
@@ -51,6 +52,7 @@ class CentronicDevice:
         self.available: bool = True
 
         self._availability_timer: asyncio.TimerHandle | None = None
+        self._poll_task: asyncio.Task | None = None
 
         # Discovery flags
         self._got_status = False
@@ -76,6 +78,7 @@ class CentronicDevice:
         """Send an action command."""
         payload = build_action_packet(self.mac_id, action)
         await self._client.send(payload)
+        self._start_polling()
 
     async def move_to(self, percentage: float) -> None:
         """Move to a specific position (0-100)."""
@@ -83,6 +86,7 @@ class CentronicDevice:
             self.mac_id, percentage, self._client.get_next_cnt()
         )
         await self._client.send(payload)
+        self._start_polling()
 
     async def identify(self) -> None:
         """Identify the device (jog)."""
@@ -93,19 +97,25 @@ class CentronicDevice:
         """Poll current status/position."""
         payload = build_status_request(self.mac_id, self._client.get_next_cnt())
         await self._client.send(payload)
-        self.expect_response()
+        self._expect_response()
+
+    async def request_info(self) -> None:
+        """Poll device info (SN and FW)."""
+        payload = build_info_request(self.mac_id, self._client.get_next_cnt())
+        await self._client.send(payload)
+        self._expect_response()
 
     async def get_name(self) -> None:
         """Fetch the device name."""
         payload = build_get_name_packet(self.mac_id)
         await self._client.send(payload)
-        self.expect_response()
+        self._expect_response()
 
     async def set_name(self, name: str) -> None:
         """Set a new device name."""
         payload = build_set_name_packet(self.mac_id, name)
         await self._client.send(payload)
-        self.expect_response()
+        self._expect_response()
 
     def _mark_available(self) -> None:
         """Stop timeout timer and ensure device is marked available."""
@@ -114,7 +124,7 @@ class CentronicDevice:
             self._availability_timer = None
         self.available = True
 
-    def expect_response(self) -> None:
+    def _expect_response(self) -> None:
         """Start a timer waiting for a response. Mark unavailable if it expires."""
         if self._availability_timer:
             self._availability_timer.cancel()
@@ -132,6 +142,50 @@ class CentronicDevice:
             )
             if self._callback:
                 self._callback(self)
+
+    def _start_polling(self) -> None:
+        """Start or restart the activity polling task."""
+        if not self._client.enable_polling:
+            return
+        if self._poll_task:
+            self._poll_task.cancel()
+        self._poll_task = asyncio.create_task(self._run_activity_poll())
+
+    async def _run_activity_poll(self) -> None:
+        """Poll frequently while moving or unavailable, with backoff."""
+        start_time = asyncio.get_running_loop().time()
+        interval = 3.5
+        timeout = 600
+        count = 0
+        try:
+            while True:
+                # 1. Action: Request Status
+                await self.request_status()
+                count += 1
+
+                # 2. Wait
+                await asyncio.sleep(interval)
+
+                # 3. Check Stop Conditions
+                # Condition A: Total timeout (10 minutes)
+                if (asyncio.get_running_loop().time() - start_time) > timeout:
+                    _LOGGER.debug("Polling timeout reached for %s", self.mac_id)
+                    break
+
+                # Condition B: Healthy state reached (min 2 polls)
+                if not self.moving and self.available and count >= 2:  # noqa: PLR2004
+                    break
+
+                # 4. Backoff: increase interval slightly (max 60s)
+                interval = min(interval * 1.3, 60.0)
+
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            _LOGGER.exception("Error in device poll loop for %s", self.mac_id)
+        finally:
+            if self._poll_task is asyncio.current_task():
+                self._poll_task = None
 
     @property
     def is_ready(self) -> bool:

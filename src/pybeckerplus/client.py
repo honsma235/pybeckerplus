@@ -40,6 +40,8 @@ class BeckerClient:
         port: str,
         device_callback: Callable[[CentronicDevice], None] | None = None,
         on_disconnect: Callable[[Exception | None], None] | None = None,
+        *,
+        enable_polling: bool = False,
     ) -> None:
         """Initialize the BeckerClient with port and callbacks."""
         self.port = port
@@ -52,6 +54,7 @@ class BeckerClient:
         self._reader: StreamReader | None = None
         self._writer: StreamWriter | None = None
         self._read_task: asyncio.Task[None] | None = None
+        self._monitor_task: asyncio.Task[None] | None = None
         self._cnt = 0
         self._ack_waiter: asyncio.Future[bool] | None = None
         self._stick_info_waiter: asyncio.Future[bool] | None = None
@@ -59,6 +62,7 @@ class BeckerClient:
         self._lock = asyncio.Lock()
         self._last_send_time = 0.0
         self._connection_error: Exception | None = None
+        self.enable_polling = enable_polling
 
     async def connect(self) -> None:
         """Establish serial connection and start background reader."""
@@ -76,6 +80,11 @@ class BeckerClient:
 
     async def close(self) -> None:
         """Close the serial connection."""
+        self.stop_monitoring()
+        for device in self.devices.values():
+            if device._poll_task:  # noqa: SLF001
+                device._poll_task.cancel()  # noqa: SLF001
+
         if self._read_task:
             self._read_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -286,9 +295,9 @@ class BeckerClient:
         """Inform devices that an immediate response is expected."""
         if mac_id is None:
             for device in self.devices.values():
-                device.expect_response()
+                device._expect_response()  # noqa: SLF001
         elif device := self.get_device(mac_id):
-            device.expect_response()
+            device._expect_response()  # noqa: SLF001
 
     @property
     def connected(self) -> bool:
@@ -347,15 +356,75 @@ class BeckerClient:
             self._stick_info_waiter = None
             self._stick_fw_waiter = None
 
-    async def start_discovery(self) -> None:
-        """Send global requests to find all devices and their states."""
-        await self.update_stick_info()
-        # Send discovery commands sequentially
-        await self.send(build_global_name_request())
-        await asyncio.sleep(2.5)
-        await self.send(build_global_info_request(self.get_next_cnt()))
-        await asyncio.sleep(2.5)
-        await self.send(build_global_status_request(self.get_next_cnt()))
+    async def start_monitoring(self, *, restart: bool) -> None:
+        """Start discovery and the periodic maintenance loop."""
+        if restart:
+            self.stop_monitoring()
+        if self._monitor_task and not self._monitor_task.done():
+            return
+        self._monitor_task = asyncio.create_task(self._run_monitoring())
+
+    def stop_monitoring(self) -> None:
+        """Stop discovery and maintenance monitoring."""
+        if self._monitor_task:
+            self._monitor_task.cancel()
+            self._monitor_task = None
+
+    async def _run_monitoring(self) -> None:
+        """Perform discovery then poll globally every 30 minutes."""
+        try:
+            # Phase 1: Global Burst
+            # Fire global requests to find as many devices as possible quickly
+            await self.send(build_global_name_request())
+            await asyncio.sleep(2.5)
+            await self.send(build_global_info_request(self.get_next_cnt()))
+            await asyncio.sleep(2.5)
+            await self.global_request_status()
+            await asyncio.sleep(5.0)
+
+            # Phase 2: Targeted Sweep
+            # For devices that missed the global burst, try direct requests
+            max_sweep_attempts = 10
+            for attempt in range(max_sweep_attempts):
+                if self.all_devices_ready:
+                    _LOGGER.debug("Targeted sweep complete: all devices ready")
+                    break
+
+                _LOGGER.debug(
+                    "Discovery sweep attempt %s/%s", attempt + 1, max_sweep_attempts
+                )
+
+                # Iterate over a list to avoid issues if new devices are found
+                # during loop
+                for device in list(self.devices.values()):
+                    if device.is_ready:
+                        continue
+
+                    if not device._got_name:  # noqa: SLF001
+                        await device.get_name()
+                        await asyncio.sleep(1.0)
+                    if not device._got_info:  # noqa: SLF001
+                        await device.request_info()
+                        await asyncio.sleep(1.0)
+                    if not device._got_status:  # noqa: SLF001
+                        await device.request_status()
+                        await asyncio.sleep(
+                            1.0
+                        )  # Small gap between direct discovery polls
+
+                await asyncio.sleep(
+                    10.0
+                )  # Wait for responses before next sweep attempt
+
+            # Phase 3: Long-term Maintenance
+            while True:
+                _LOGGER.debug("Performing 30-minute global maintenance poll")
+                await self.global_request_status()
+                await asyncio.sleep(1800)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            _LOGGER.exception("Error in global monitoring loop")
 
     def get_device(self, mac_id: str) -> CentronicDevice | None:
         """Get device object from registry."""
