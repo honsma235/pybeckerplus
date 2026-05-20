@@ -6,8 +6,13 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from .constants import DEVICE_RESPONSE_TIMEOUT, Action, StatusBit, StatusBitAux
-from .packet import (
+from pybeckerplus.constants import (
+    DEVICE_RESPONSE_TIMEOUT,
+    Action,
+    StatusBit,
+    StatusBitAux,
+)
+from pybeckerplus.packet import (
     build_action_packet,
     build_get_name_packet,
     build_identify_packet,
@@ -20,7 +25,7 @@ from .packet import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from .client import BeckerClient
+    from pybeckerplus.client import BeckerClient
 
 _LOGGER = logging.getLogger(__name__)
 

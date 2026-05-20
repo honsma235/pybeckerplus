@@ -10,10 +10,21 @@ from typing import TYPE_CHECKING
 
 import serialx
 
-from .constants import ACK_TIMEOUT, COMMAND_GAP_TIME, ETX, STICK_ACK, STX, Action
-from .device import CentronicDevice
-from .exceptions import BeckerConnectionError, BeckerError, BeckerTimeoutError
-from .packet import (
+from pybeckerplus.constants import (
+    ACK_TIMEOUT,
+    COMMAND_GAP_TIME,
+    ETX,
+    STICK_ACK,
+    STX,
+    Action,
+)
+from pybeckerplus.device import CentronicDevice
+from pybeckerplus.exceptions import (
+    BeckerConnectionError,
+    BeckerError,
+    BeckerTimeoutError,
+)
+from pybeckerplus.packet import (
     build_global_action_packet,
     build_global_info_request,
     build_global_moveto_packet,

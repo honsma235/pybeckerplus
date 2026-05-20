@@ -7,8 +7,8 @@ import re
 import struct
 from typing import Any
 
-from .constants import ETX, STX, Action, PairingAction
-from .exceptions import BeckerParseError
+from pybeckerplus.constants import ETX, STX, Action, PairingAction
+from pybeckerplus.exceptions import BeckerParseError
 
 _LOGGER = logging.getLogger(__name__)
 
