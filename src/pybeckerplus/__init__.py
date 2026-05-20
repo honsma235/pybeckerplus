@@ -13,6 +13,6 @@ __all__ = [
     "BeckerError",
     "BeckerParseError",
     "BeckerTimeoutError",
-    "CentronicDevice",
+    "CentronicPlusDevice",
     "StatusBit",
 ]
