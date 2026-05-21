@@ -55,7 +55,7 @@ STICK_ACK = b"\r\n\r\n"
 ACK_TIMEOUT = 1.0
 
 # Minimum time (seconds) to wait between sending commands to the USB stick
-COMMAND_GAP_TIME = 0.2
+COMMAND_GAP_TIME = 0.25
 
 # Default time to wait for a device response before marking it unavailable
 DEVICE_RESPONSE_TIMEOUT = 2.5

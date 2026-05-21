@@ -154,7 +154,9 @@ class CentronicPlusDevice:
             return
         if self._poll_task:
             self._poll_task.cancel()
-        self._poll_task = asyncio.create_task(self._run_activity_poll())
+        self._poll_task = asyncio.create_task(
+            self._run_activity_poll(), name=f"pybeckerplus_device_poll_{self.mac_id}"
+        )
 
     async def _run_activity_poll(self) -> None:
         """Poll frequently while moving or unavailable, with backoff."""

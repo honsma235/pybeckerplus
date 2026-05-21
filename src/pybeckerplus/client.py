@@ -373,7 +373,9 @@ class BeckerClient:
             self.stop_monitoring()
         if self._monitor_task and not self._monitor_task.done():
             return
-        self._monitor_task = asyncio.create_task(self._run_monitoring())
+        self._monitor_task = asyncio.create_task(
+            self._run_monitoring(), name="pybeckerplus_monitor_loop"
+        )
 
     def stop_monitoring(self) -> None:
         """Stop discovery and maintenance monitoring."""
