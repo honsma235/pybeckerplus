@@ -299,6 +299,9 @@ class BeckerClient:
                     if "name" in data:
                         device.update_name(data["name"])
 
+                case _:
+                    pass
+
         except Exception:
             _LOGGER.exception("Unexpected error processing packet: %s", packet_hex)
 

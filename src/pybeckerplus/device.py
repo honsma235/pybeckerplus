@@ -57,7 +57,7 @@ class CentronicPlusDevice:
         self.available: bool = True
 
         self._availability_timer: asyncio.TimerHandle | None = None
-        self._poll_task: asyncio.Task | None = None
+        self._poll_task: asyncio.Task[None] | None = None
 
         # Discovery flags
         self._got_status = False
