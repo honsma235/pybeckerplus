@@ -38,3 +38,14 @@ python tools/cli.py /dev/ttyUSB0
 # Run the monitor tool (Windows)
 python tools/cli.py COM3
 ```
+
+## Development Setup
+
+1. Install [uv](https://astral.sh) if you haven't already.
+2. Clone the repository and run:
+
+```bash
+uv sync --all-groups
+```
+
+This automatically installs the correct Python version, creates a virtual environment, and installs all core and development dependencies.
