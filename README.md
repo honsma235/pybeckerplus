@@ -39,7 +39,9 @@ python tools/cli.py /dev/ttyUSB0
 python tools/cli.py COM3
 ```
 
-## Development Setup
+## Development
+
+### Setup
 
 1. Install [uv](https://astral.sh) if you haven't already.
 2. Clone the repository and run:
@@ -59,4 +61,24 @@ uv run ruff format .
 uv run ruff check . --fix
 uv run ty check
 uv run pytest
+```
+
+### Release process
+
+When publishing a new version:
+
+1. Update version in `pyproject.toml` and `__init__.py`.
+2. Run the developer checks above.
+3. Update the package:
+
+```bash
+uv sync
+```
+
+4. Commit the version bump using a clear message, for example `bump version`.
+5. Create and push an annotated tag, e.g.:
+
+```bash
+git tag -a v0.2.4 -m "Release v0.2.4"
+git push origin --tags
 ```
