@@ -298,6 +298,82 @@ async def test_send_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_initialize_wake_up_and_fetch_stick_info() -> None:
+    """Test that initialize() sends startup packets and waits for stick info/firmware."""
+    client = BeckerClient(port="LOOPBACK")
+    mock_writer = MagicMock()
+    mock_writer.drain = AsyncMock()
+    client._writer = mock_writer
+
+    async def send_no_ack(self: BeckerClient, payload_hex: str) -> None:
+        await self._write_packet(payload_hex)
+
+    client.send = send_no_ack.__get__(client, BeckerClient)
+
+    async def resolve_stick_data() -> None:
+        fw_packet = "072E010CF86800000000000001070300"
+        info_packet = "07270111A0DC04FF1234ABCD1234ABCD0000000000"
+
+        while client.stick_fw is None or client.stick_mac is None:
+            await asyncio.sleep(0)
+            if client._stick_fw_waiter and not client._stick_fw_waiter.done():
+                client._handle_packet(fw_packet)
+            if client._stick_info_waiter and not client._stick_info_waiter.done():
+                client._handle_packet(info_packet)
+
+    task = asyncio.create_task(resolve_stick_data())
+    await client.initialize()
+    await task
+
+    assert client.stick_fw == "01.07.03"
+    assert client.stick_mac == "a0dc04ff1234abcd"
+    assert client.stick_install_id == "1234abcd"
+    assert mock_writer.write.call_count == 5  # noqa: PLR2004
+
+
+@pytest.mark.asyncio
+async def test_initialize_retries_on_timeout() -> None:
+    """Test that initialize() retries after a temporary timeout."""
+    client = BeckerClient(port="LOOPBACK")
+    mock_writer = MagicMock()
+    mock_writer.drain = AsyncMock()
+    client._writer = mock_writer
+
+    attempt = 0
+
+    async def send_with_retry(self: BeckerClient, payload_hex: str) -> None:
+        nonlocal attempt
+        attempt += 1
+        if attempt == 1:
+            raise BeckerTimeoutError("Stick did not acknowledge command")
+        await self._write_packet(payload_hex)
+
+    client.send = send_with_retry.__get__(client, BeckerClient)
+
+    async def resolve_stick_data() -> None:
+        fw_packet = "072E010CF86800000000000001070300"
+        info_packet = "07270111A0DC04FF1234ABCD1234ABCD0000000000"
+
+        while client.stick_fw is None or client.stick_mac is None:
+            await asyncio.sleep(0)
+            if attempt < 2:  # noqa: PLR2004
+                continue
+            if client._stick_fw_waiter and not client._stick_fw_waiter.done():
+                client._handle_packet(fw_packet)
+            if client._stick_info_waiter and not client._stick_info_waiter.done():
+                client._handle_packet(info_packet)
+
+    task = asyncio.create_task(resolve_stick_data())
+    await client.initialize()
+    await task
+
+    assert attempt == 3  # noqa: PLR2004
+    assert client.stick_fw == "01.07.03"
+    assert client.stick_mac == "a0dc04ff1234abcd"
+    assert client.stick_install_id == "1234abcd"
+
+
+@pytest.mark.asyncio
 async def test_send_fails_when_disconnected() -> None:
     """Test that send() raises appropriate errors when not connected."""
     client = BeckerClient(port="LOOPBACK")

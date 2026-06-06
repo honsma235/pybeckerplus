@@ -115,8 +115,8 @@ class BeckerClient:
         self._cnt = (self._cnt + 1) & 0xFFFF
         return self._cnt
 
-    async def send(self, payload_hex: str) -> None:
-        """Send packet and wait for stick acknowledgment."""
+    async def _write_packet(self, payload_hex: str) -> None:
+        """Write a framed packet and enforce the command gap."""
         if not self._writer:
             if self._connection_error:
                 msg = "Connection lost"
@@ -131,21 +131,24 @@ class BeckerClient:
             if delay > 0:
                 await asyncio.sleep(delay)
 
-            self._ack_waiter = asyncio.get_running_loop().create_future()
             packet = wrap_packet(payload_hex)
-
-            _LOGGER.debug(" --> USB %s", payload_hex)
+            _LOGGER.debug(" --> USB %s", payload_hex or "(empty)")
             self._writer.write(packet)
             await self._writer.drain()
+            self._last_send_time = asyncio.get_running_loop().time()
 
-            try:
-                await asyncio.wait_for(self._ack_waiter, timeout=ACK_TIMEOUT)
-            except TimeoutError as exc:
-                msg = "Stick did not acknowledge command"
-                raise BeckerTimeoutError(msg) from exc
-            finally:
-                self._ack_waiter = None
-                self._last_send_time = asyncio.get_running_loop().time()
+    async def send(self, payload_hex: str) -> None:
+        """Send packet and wait for stick acknowledgment."""
+        self._ack_waiter = asyncio.get_running_loop().create_future()
+
+        try:
+            await self._write_packet(payload_hex)
+            await asyncio.wait_for(self._ack_waiter, timeout=ACK_TIMEOUT)
+        except TimeoutError as exc:
+            msg = "Stick did not acknowledge command"
+            raise BeckerTimeoutError(msg) from exc
+        finally:
+            self._ack_waiter = None
 
     def _wrapped_callback(self, device: CentronicPlusDevice) -> None:
         """Notify listener only if the device has finished initial discovery."""
@@ -347,25 +350,43 @@ class BeckerClient:
         await self.send(payload)
         self._trigger_expectation(None)
 
-    async def update_stick_info(self) -> None:
-        """Fetch and wait for stick MAC and Firmware info."""
+    async def initialize(self) -> None:
+        """Initialize the stick and fetch its MAC/install ID and firmware info."""
         loop = asyncio.get_running_loop()
-        self._stick_info_waiter = loop.create_future()
-        self._stick_fw_waiter = loop.create_future()
+        max_attempts = 3
 
         try:
-            # Send requests sequentially; each waits for a serial ACK
-            await self.send(build_stick_fw_request())
-            await self.send(build_stick_info_request())
+            for attempt in range(max_attempts):
+                self._stick_info_waiter = loop.create_future()
+                self._stick_fw_waiter = loop.create_future()
 
-            # Wait for the actual data packets to arrive from the read loop
-            await asyncio.wait_for(
-                asyncio.gather(self._stick_info_waiter, self._stick_fw_waiter),
-                timeout=2.0,
-            )
-        except TimeoutError as e:
-            msg = "Timed out waiting for stick info/firmware response"
-            raise BeckerTimeoutError(msg) from e
+                try:
+                    # The device may emit initial empty responses and free-form text
+                    # before the first strictly framed packets arrive. Use a light
+                    # startup handshake without requiring a strict ACK for every frame.
+                    await self._write_packet("")
+                    await self._write_packet("")
+                    await self._write_packet("")
+                    await self.send(build_stick_fw_request())
+                    await asyncio.wait_for(self._stick_fw_waiter, timeout=1.5)
+                    await self.send(build_stick_info_request())
+                    await asyncio.wait_for(self._stick_info_waiter, timeout=1.5)
+                except (TimeoutError, BeckerTimeoutError) as exc:
+                    if attempt == max_attempts - 1:
+                        msg = "Timed out waiting for stick info/firmware response"
+                        raise BeckerTimeoutError(msg) from exc
+
+                    _LOGGER.debug(
+                        "Stick initialization attempt %s/%s timed out; retrying",
+                        attempt + 1,
+                        max_attempts,
+                    )
+                    if self._stick_info_waiter and not self._stick_info_waiter.done():
+                        self._stick_info_waiter.cancel()
+                    if self._stick_fw_waiter and not self._stick_fw_waiter.done():
+                        self._stick_fw_waiter.cancel()
+                else:
+                    return
         finally:
             self._stick_info_waiter = None
             self._stick_fw_waiter = None
