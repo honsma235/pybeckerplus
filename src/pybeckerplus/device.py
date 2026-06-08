@@ -148,10 +148,18 @@ class CentronicPlusDevice:
             if self._callback:
                 self._callback(self)
 
-    def _start_polling(self) -> None:
-        """Start or restart the activity polling task."""
+        # Start recovery polling if the client has it enabled
+        self._start_polling(force=False)
+
+    def _start_polling(self, *, force: bool = True) -> None:
+        """Start or ensure the activity polling task is running."""
         if not self._client.enable_polling:
             return
+
+        # If not forcing, don't restart an already running poll
+        if not force and self._poll_task and not self._poll_task.done():
+            return
+
         if self._poll_task:
             self._poll_task.cancel()
         self._poll_task = asyncio.create_task(

@@ -106,7 +106,19 @@ class BeckerClient:
 
         if self._writer:
             self._writer.close()
-            await self._writer.wait_closed()
+            try:
+                await asyncio.wait_for(self._writer.wait_closed(), timeout=1.0)
+            except TimeoutError:
+                _LOGGER.debug(
+                    "Timed out waiting for serial writer to close; "
+                    "connection may already be gone"
+                )
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Error closing serial writer (%s): %s; ignoring",
+                    exc.__class__.__name__,
+                    exc,
+                )
         self._reader = None
         self._writer = None
 
@@ -115,40 +127,52 @@ class BeckerClient:
         self._cnt = (self._cnt + 1) & 0xFFFF
         return self._cnt
 
-    async def _write_packet(self, payload_hex: str) -> None:
+    async def _write_packet_logic(self, payload_hex: str) -> None:
         """Write a framed packet and enforce the command gap."""
+        # Simple rate limiting: 100ms gap between commands
+        now = asyncio.get_running_loop().time()
+        delay = self._last_send_time + COMMAND_GAP_TIME - now
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+        packet = wrap_packet(payload_hex)
+        _LOGGER.debug(" --> USB %s", payload_hex or "(empty)")
+        if self._writer:
+            self._writer.write(packet)
+            await self._writer.drain()
+        self._last_send_time = asyncio.get_running_loop().time()
+
+    async def send(self, payload_hex: str, *, expect_ack: bool = True) -> None:
+        """Send packet and optionally wait for stick acknowledgment."""
+        if self._connection_error:
+            msg = "Connection lost"
+            raise BeckerConnectionError(msg) from self._connection_error
+
         if not self._writer:
-            if self._connection_error:
-                msg = "Connection lost"
-                raise BeckerConnectionError(msg) from self._connection_error
             msg = "Not connected"
             raise BeckerError(msg)
 
         async with self._lock:
-            # Simple rate limiting: 100ms gap between commands
-            now = asyncio.get_running_loop().time()
-            delay = self._last_send_time + COMMAND_GAP_TIME - now
-            if delay > 0:
-                await asyncio.sleep(delay)
+            if not expect_ack:
+                await self._write_packet_logic(payload_hex)
+                return
 
-            packet = wrap_packet(payload_hex)
-            _LOGGER.debug(" --> USB %s", payload_hex or "(empty)")
-            self._writer.write(packet)
-            await self._writer.drain()
-            self._last_send_time = asyncio.get_running_loop().time()
-
-    async def send(self, payload_hex: str) -> None:
-        """Send packet and wait for stick acknowledgment."""
-        self._ack_waiter = asyncio.get_running_loop().create_future()
-
-        try:
-            await self._write_packet(payload_hex)
-            await asyncio.wait_for(self._ack_waiter, timeout=ACK_TIMEOUT)
-        except TimeoutError as exc:
-            msg = "Stick did not acknowledge command"
-            raise BeckerTimeoutError(msg) from exc
-        finally:
-            self._ack_waiter = None
+            self._ack_waiter = asyncio.get_running_loop().create_future()
+            try:
+                await self._write_packet_logic(payload_hex)
+                await asyncio.wait_for(self._ack_waiter, timeout=ACK_TIMEOUT)
+            except TimeoutError as exc:
+                msg = "Stick did not acknowledge command"
+                raise BeckerTimeoutError(msg) from exc
+            finally:
+                if (
+                    self._ack_waiter
+                    and self._ack_waiter.done()
+                    and not self._ack_waiter.cancelled()
+                ):
+                    with contextlib.suppress(Exception):
+                        self._ack_waiter.exception()
+                self._ack_waiter = None
 
     def _wrapped_callback(self, device: CentronicPlusDevice) -> None:
         """Notify listener only if the device has finished initial discovery."""
@@ -209,7 +233,7 @@ class BeckerClient:
                                 packet_hex = buffer[stx_pos + 1 : etx_pos].decode(
                                     "ascii"
                                 )
-                                _LOGGER.debug(" <-- USB : %s", packet_hex)
+                                _LOGGER.debug(" <-- USB %s", packet_hex)
                                 self._handle_packet(packet_hex)
                             except (UnicodeDecodeError, ValueError):
                                 _LOGGER.debug(
@@ -240,8 +264,14 @@ class BeckerClient:
                     buffer = buffer[keep_idx:]
                     break
 
-            except Exception as exc:
-                _LOGGER.exception("Fatal error in serial read loop")
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Unexpected serial read loop error (%s): %s",
+                    exc.__class__.__name__,
+                    exc,
+                )
                 self._handle_disconnect(exc)
                 break
 
@@ -364,9 +394,9 @@ class BeckerClient:
                     # The device may emit initial empty responses and free-form text
                     # before the first strictly framed packets arrive. Use a light
                     # startup handshake without requiring a strict ACK for every frame.
-                    await self._write_packet("")
-                    await self._write_packet("")
-                    await self._write_packet("")
+                    await self.send("", expect_ack=False)
+                    await self.send("", expect_ack=False)
+                    await self.send("", expect_ack=False)
                     await self.send(build_stick_fw_request())
                     await asyncio.wait_for(self._stick_fw_waiter, timeout=1.5)
                     await self.send(build_stick_info_request())
@@ -388,6 +418,13 @@ class BeckerClient:
                 else:
                     return
         finally:
+            # Consume exceptions for waiters that were never awaited to prevent
+            # "Future exception was never retrieved" warnings if we disconnect
+            # early in the initialization sequence.
+            for waiter in [self._stick_info_waiter, self._stick_fw_waiter]:
+                if waiter and waiter.done() and not waiter.cancelled():
+                    with contextlib.suppress(Exception):
+                        waiter.exception()
             self._stick_info_waiter = None
             self._stick_fw_waiter = None
 
@@ -407,35 +444,25 @@ class BeckerClient:
             self._monitor_task.cancel()
             self._monitor_task = None
 
-    async def _run_monitoring(self) -> None:
-        """Perform discovery then poll globally every 30 minutes."""
+    async def _run_monitoring(self) -> None:  # noqa: PLR0915
+        """Perform discovery then poll globally with varying intervals."""
         try:
-            # Phase 1: Global Burst
-            # Fire global requests to find as many devices as possible quickly
-            await self.send(build_global_name_request())
-            await asyncio.sleep(2.5)
-            await self.send(build_global_info_request(self.get_next_cnt()))
-            await asyncio.sleep(2.5)
-            await self.global_request_status()
-            await asyncio.sleep(5.0)
 
-            # Phase 2: Targeted Sweep
-            # For devices that missed the global burst, try direct requests
-            max_sweep_attempts = 10
-            for attempt in range(max_sweep_attempts):
-                if self.all_devices_ready:
-                    _LOGGER.debug("Targeted sweep complete: all devices ready")
-                    break
-
-                _LOGGER.debug(
-                    "Discovery sweep attempt %s/%s", attempt + 1, max_sweep_attempts
-                )
-
-                # Iterate over a list to avoid issues if new devices are found
-                # during loop
-                for device in list(self.devices.values()):
+            async def sweep_device(
+                device: CentronicPlusDevice, max_attempts: int
+            ) -> None:
+                """Sweep a single device up to max_attempts times."""
+                for attempt in range(max_attempts):
                     if device.is_ready:
-                        continue
+                        _LOGGER.debug("Device %s ready", device.mac_id)
+                        break
+
+                    _LOGGER.debug(
+                        "Sweeping device %s (attempt %s/%s)",
+                        device.mac_id,
+                        attempt + 1,
+                        max_attempts,
+                    )
 
                     if not device._got_name:  # noqa: SLF001
                         await device.get_name()
@@ -445,23 +472,67 @@ class BeckerClient:
                         await asyncio.sleep(1.0)
                     if not device._got_status:  # noqa: SLF001
                         await device.request_status()
-                        await asyncio.sleep(
-                            1.0
-                        )  # Small gap between direct discovery polls
+                        await asyncio.sleep(1.0)
 
-                await asyncio.sleep(
-                    10.0
-                )  # Wait for responses before next sweep attempt
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(5.0)
 
-            # Phase 3: Long-term Maintenance
+            async def sweep_all_not_ready() -> None:
+                """Sweep all not-ready devices in parallel."""
+                tasks = [
+                    asyncio.create_task(sweep_device(device, 10))
+                    for device in self.devices.values()
+                    if not device.is_ready
+                ]
+                if tasks:
+                    await asyncio.gather(*tasks)
+
+            # Phase 1: Initial Global Burst
+            await self.send(build_global_name_request())
+            await asyncio.sleep(2.5)
+            await self.send(build_global_info_request(self.get_next_cnt()))
+            await asyncio.sleep(2.5)
+            await self.global_request_status()
+            await asyncio.sleep(5.0)
+            await sweep_all_not_ready()
+
+            # Phase 2: Global status every 5s (3x) with device sweeps
+            for _ in range(3):
+                await self.global_request_status()
+                await asyncio.sleep(5.0)
+                await sweep_all_not_ready()
+
+            # Phase 3: Repeat global Burst
+            await self.send(build_global_name_request())
+            await asyncio.sleep(2.5)
+            await self.send(build_global_info_request(self.get_next_cnt()))
+            await asyncio.sleep(2.5)
+            await self.global_request_status()
+            await asyncio.sleep(5.0)
+
+            # Phase 4: Global status every 5s (3x) with device sweeps
+            for _ in range(3):
+                await self.global_request_status()
+                await asyncio.sleep(5.0)
+                await sweep_all_not_ready()
+
+            # Phase 5: Long-term maintenance - every 1800s
             while True:
                 _LOGGER.debug("Performing 30-minute global maintenance poll")
                 await self.global_request_status()
+                await asyncio.sleep(5.0)
+                await sweep_all_not_ready()
                 await asyncio.sleep(1800)
+
         except asyncio.CancelledError:
             pass
-        except Exception:
-            _LOGGER.exception("Error in global monitoring loop")
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "Unexpected error in global monitoring loop (%s): %s",
+                exc.__class__.__name__,
+                exc,
+            )
+            self._handle_disconnect(exc)
 
     def get_device(self, mac_id: str) -> CentronicPlusDevice | None:
         """Get device object from registry."""

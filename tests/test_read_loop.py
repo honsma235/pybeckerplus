@@ -305,8 +305,8 @@ async def test_initialize_wake_up_and_fetch_stick_info() -> None:
     mock_writer.drain = AsyncMock()
     client._writer = mock_writer
 
-    async def send_no_ack(self: BeckerClient, payload_hex: str) -> None:
-        await self._write_packet(payload_hex)
+    async def send_no_ack(self: BeckerClient, payload_hex: str, **_kwargs: Any) -> None:
+        await BeckerClient.send(self, payload_hex, expect_ack=False)
 
     client.send = send_no_ack.__get__(client, BeckerClient)
 
@@ -341,12 +341,14 @@ async def test_initialize_retries_on_timeout() -> None:
 
     attempt = 0
 
-    async def send_with_retry(self: BeckerClient, payload_hex: str) -> None:
+    async def send_with_retry(
+        self: BeckerClient, payload_hex: str, **_kwargs: Any
+    ) -> None:
         nonlocal attempt
         attempt += 1
         if attempt == 1:
             raise BeckerTimeoutError("Stick did not acknowledge command")
-        await self._write_packet(payload_hex)
+        await BeckerClient.send(self, payload_hex, expect_ack=False)
 
     client.send = send_with_retry.__get__(client, BeckerClient)
 
@@ -367,7 +369,7 @@ async def test_initialize_retries_on_timeout() -> None:
     await client.initialize()
     await task
 
-    assert attempt == 3  # noqa: PLR2004
+    assert attempt == 6  # noqa: PLR2004
     assert client.stick_fw == "01.07.03"
     assert client.stick_mac == "a0dc04ff1234abcd"
     assert client.stick_install_id == "1234abcd"

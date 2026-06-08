@@ -12,19 +12,30 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 
-from pybeckerplus import Action, BeckerClient, CentronicPlusDevice
+from pybeckerplus import Action, BeckerClient, BeckerError, CentronicPlusDevice
 
 live_status_enabled = True
+_LOGGER = logging.getLogger(__name__)
 
 
 def print_device(device: CentronicPlusDevice) -> None:
     print(
         f"MAC: {device.mac_id} ({device.name or 'No Name'}), "
-        f"SN: {device.serial_number}, FW: {device.firmware_version}), "
-        f"Pos={device.position}%, RSSI={device.rssi}, Moving={device.moving}, "
+        f"SN: {device.serial_number}, FW: {device.firmware_version}, "
+        f"Pos={device.position}%, RSSI={device.rssi}, Avail={device.available}, "
+        f"Moving={device.moving}, "
         f"Limits(U={int(device.upper_limit)} L={int(device.lower_limit)}), "
         f"Status(Block={int(device.blocked)} OverH={int(device.overheated)} "
         f"Freeze={int(device.anti_freeze)} Fly={int(device.fly_screen)})"
+    )
+
+
+def print_stick_info(client: BeckerClient) -> None:
+    print(
+        f"Stick Info: MAC={client.stick_mac or 'Unknown'}, "
+        f"InstallID={client.stick_install_id or 'Unknown'}, "
+        f"FW={client.stick_fw or 'Unknown'}, "
+        f"ActivityPolling={'Active' if client.enable_polling else 'Off'}"
     )
 
 
@@ -41,10 +52,37 @@ def device_updated(device: CentronicPlusDevice) -> None:
         print("beckerplus> ", end="", flush=True)
 
 
-async def interactive_shell(client: BeckerClient) -> None:
-    """Main CLI logic."""
-    loop = asyncio.get_event_loop()
+async def _prompt_or_disconnect(
+    prompt: str, disconnect_event: asyncio.Event
+) -> str | None:
+    input_task = asyncio.create_task(asyncio.to_thread(input, prompt))
+    wait_disconnect = asyncio.create_task(disconnect_event.wait())
 
+    try:
+        done, _pending = await asyncio.wait(
+            [input_task, wait_disconnect],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        # Suppress potential EOFError on shutdown
+        input_task.add_done_callback(
+            lambda f: f.exception() if not f.cancelled() else None
+        )
+        raise
+    finally:
+        wait_disconnect.cancel()
+        if not input_task.done():
+            input_task.add_done_callback(
+                lambda f: f.exception() if not f.cancelled() else None
+            )
+            input_task.cancel()
+
+    return await input_task if input_task in done else None
+
+
+async def interactive_shell(
+    client: BeckerClient, disconnect_event: asyncio.Event
+) -> None:
     print("\n--- Becker Centronic Plus Interactive Shell ---")
     print("Type 'help' for commands, 'exit' to quit.\n")
 
@@ -53,7 +91,10 @@ async def interactive_shell(client: BeckerClient) -> None:
 
     while True:
         try:
-            cmd_line = await loop.run_in_executor(None, input, "beckerplus> ")
+            cmd_line = await _prompt_or_disconnect("beckerplus> ", disconnect_event)
+            if cmd_line is None:
+                break
+
             if not cmd_line.strip():
                 continue
 
@@ -83,12 +124,7 @@ Commands:
 """)
 
             elif cmd == "list":
-                print(
-                    f"Stick Info: MAC={client.stick_mac or 'Unknown'}, "
-                    f"InstallID={client.stick_install_id or 'Unknown'}, "
-                    f"FW={client.stick_fw or 'Unknown'}, "
-                    f"ActivityPolling={'Active' if client.enable_polling else 'Off'}"
-                )
+                print_stick_info(client)
                 print("-" * 60)
                 if not client.devices:
                     print("No devices discovered.")
@@ -187,16 +223,40 @@ async def main() -> None:
     if args.verbose:
         logging.basicConfig(level=logging.DEBUG)
 
+    disconnect_event = asyncio.Event()
+
+    def handle_disconnect(exc: Exception | None) -> None:
+        if exc:
+            print(f"\nStick disconnected: {exc}")
+        disconnect_event.set()
+
     client = BeckerClient(
-        args.port, device_callback=device_updated, enable_polling=True
+        args.port,
+        device_callback=device_updated,
+        on_disconnect=handle_disconnect,
+        enable_polling=True,
     )
 
     try:
         await client.connect()
-        await interactive_shell(client)
-    except KeyboardInterrupt:
+        await client.initialize()
+        print_stick_info(client)
+        await interactive_shell(client, disconnect_event)
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        _LOGGER.debug("Main loop interrupted")
+    except BeckerError:
+        # Handled by on_disconnect
         pass
+    except Exception as exc:
+        print(repr(exc))
     finally:
+        # Cancel all pending tasks to ensure a clean exit
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
         await client.close()
         print("Done.")
 
