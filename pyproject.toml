@@ -35,7 +35,7 @@ dev = [
     "pytest>=9.0.0",
     "pytest-asyncio>=1.3.0",
     "ruff>=0.15.0",
-    "ty>=0.0.36",
+    "ty>=0.0.46",
 ]
 
 # The ruff config is based on https://github.com/ludeeus/integration_blueprint/blob/main/.ruff.toml
