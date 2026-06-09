@@ -57,8 +57,8 @@ This automatically installs the correct Python version, creates a virtual enviro
 Run these before committing changes:
 
 ```bash
-uv run ruff format .
-uv run ruff check . --fix
+uv run ruff format
+uv run ruff check --fix
 uv run ty check
 uv run pytest
 ```
