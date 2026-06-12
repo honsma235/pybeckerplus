@@ -238,10 +238,10 @@ async def main() -> None:
     )
 
     try:
-        await client.connect()
-        await client.initialize()
-        print_stick_info(client)
-        await interactive_shell(client, disconnect_event)
+        async with client:
+            await client.initialize()
+            print_stick_info(client)
+            await interactive_shell(client, disconnect_event)
     except (KeyboardInterrupt, asyncio.CancelledError):
         _LOGGER.debug("Main loop interrupted")
     except BeckerError:
@@ -249,16 +249,8 @@ async def main() -> None:
         pass
     except Exception as exc:
         print(repr(exc))
-    finally:
-        # Cancel all pending tasks to ensure a clean exit
-        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
 
-        await client.close()
-        print("Done.")
+    print("Done.")
 
 
 if __name__ == "__main__":

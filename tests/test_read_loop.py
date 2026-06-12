@@ -408,5 +408,5 @@ async def test_close_fails_pending_waiters() -> None:
     await client.close()
 
     assert client._ack_waiter.done()
-    with pytest.raises(BeckerConnectionError, match="Disconnected"):
+    with pytest.raises(BeckerConnectionError, match="Client closed"):
         await client._ack_waiter

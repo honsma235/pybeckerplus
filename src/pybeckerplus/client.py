@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import logging
 from asyncio import StreamReader, StreamWriter
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Self
 
 import serialx
 
@@ -39,6 +39,7 @@ from pybeckerplus.packet import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import TracebackType
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -74,6 +75,21 @@ class BeckerClient:
         self._last_send_time = 0.0
         self._connection_error: Exception | None = None
         self.enable_polling = enable_polling
+        self._is_closing = False
+
+    async def __aenter__(self) -> Self:
+        """Establish serial connection and start background reader."""
+        await self.connect()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Close the serial connection."""
+        await self.close()
 
     async def connect(self) -> None:
         """Establish serial connection and start background reader."""
@@ -91,56 +107,92 @@ class BeckerClient:
 
     async def close(self) -> None:
         """Close the serial connection."""
-        self.stop_monitoring()
-        for device in self.devices.values():
-            if device._poll_task:  # noqa: SLF001
-                device._poll_task.cancel()  # noqa: SLF001
+        # Idempotency guard: return immediately if already closed or closing
+        if self._is_closing or (self._writer is None and self._read_task is None):
+            return
 
-        if self._read_task:
-            self._read_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._read_task
+        self._is_closing = True
+        try:
+            self._stop_background_tasks()
 
-        # Ensure all pending command waiters are failed immediately upon closing
-        self._handle_disconnect(None)
+            # Prevent deadlock if close() is called from within the read loop callback
+            if self._read_task and self._read_task != asyncio.current_task():
+                self._read_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._read_task
+            self._read_task = None
 
-        if self._writer:
-            self._writer.close()
-            try:
-                await asyncio.wait_for(self._writer.wait_closed(), timeout=1.0)
-            except TimeoutError:
-                _LOGGER.debug(
-                    "Timed out waiting for serial writer to close; "
-                    "connection may already be gone"
-                )
-            except Exception as exc:  # noqa: BLE001
-                _LOGGER.debug(
-                    "Error closing serial writer (%s): %s; ignoring",
-                    exc.__class__.__name__,
-                    exc,
-                )
-        self._reader = None
-        self._writer = None
+            # Ensure all pending command waiters are failed immediately upon closing
+            self._fail_waiters(BeckerConnectionError("Client closed"))
+
+            if self._writer:
+                self._writer.close()
+                try:
+                    # wait_closed() often fails if hardware is unplugged
+                    await asyncio.wait_for(self._writer.wait_closed(), timeout=1.0)
+                except TimeoutError:
+                    _LOGGER.debug(
+                        "Timed out waiting for writer to close; hardware likely gone"
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Ignored error during writer close (%s): %s",
+                        exc.__class__.__name__,
+                        exc,
+                    )
+            self._reader = None
+            self._writer = None
+        finally:
+            self._is_closing = False
+
+    async def initialize(self) -> None:
+        """Initialize the stick and fetch its MAC/install ID and firmware info."""
+        loop = asyncio.get_running_loop()
+        max_attempts = 3
+
+        try:
+            for attempt in range(max_attempts):
+                self._stick_info_waiter = loop.create_future()
+                self._stick_fw_waiter = loop.create_future()
+
+                try:
+                    # The device may emit initial empty responses and free-form text
+                    # before the first strictly framed packets arrive. Use a light
+                    # startup handshake without requiring a strict ACK for every frame.
+                    await self.send("", expect_ack=False)
+                    await self.send("", expect_ack=False)
+                    await self.send("", expect_ack=False)
+                    await self.send(build_stick_fw_request())
+                    await asyncio.wait_for(self._stick_fw_waiter, timeout=1.5)
+                    await self.send(build_stick_info_request())
+                    await asyncio.wait_for(self._stick_info_waiter, timeout=1.5)
+                except (TimeoutError, BeckerTimeoutError) as exc:
+                    if attempt == max_attempts - 1:
+                        msg = "Timed out waiting for stick info/firmware response"
+                        raise BeckerTimeoutError(msg) from exc
+
+                    _LOGGER.debug(
+                        "Stick initialization attempt %s/%s timed out; retrying",
+                        attempt + 1,
+                        max_attempts,
+                    )
+                    if self._stick_info_waiter and not self._stick_info_waiter.done():
+                        self._stick_info_waiter.cancel()
+                    if self._stick_fw_waiter and not self._stick_fw_waiter.done():
+                        self._stick_fw_waiter.cancel()
+                else:
+                    return
+            # wait fo stick to get ready in between retries
+            await asyncio.sleep(3.0)
+        finally:
+            self._clear_waiters(self._stick_info_waiter, self._stick_fw_waiter)
+            self._stick_info_waiter = None
+            self._stick_fw_waiter = None
 
     def get_next_cnt(self) -> int:
         """Increment and return the next 16-bit command counter."""
         self._cnt = (self._cnt + 1) & 0xFFFF
         return self._cnt
-
-    async def _write_packet_logic(self, payload_hex: str) -> None:
-        """Write a framed packet and enforce the command gap."""
-        # Simple rate limiting: 100ms gap between commands
-        now = asyncio.get_running_loop().time()
-        delay = self._last_send_time + COMMAND_GAP_TIME - now
-        if delay > 0:
-            await asyncio.sleep(delay)
-
-        packet = wrap_packet(payload_hex)
-        _LOGGER.debug(" --> USB %s", payload_hex or "(empty)")
-        if self._writer:
-            self._writer.write(packet)
-            await self._writer.drain()
-        self._last_send_time = asyncio.get_running_loop().time()
 
     async def send(self, payload_hex: str, *, expect_ack: bool = True) -> None:
         """Send packet and optionally wait for stick acknowledgment."""
@@ -165,19 +217,23 @@ class BeckerClient:
                 msg = "Stick did not acknowledge command"
                 raise BeckerTimeoutError(msg) from exc
             finally:
-                if (
-                    self._ack_waiter
-                    and self._ack_waiter.done()
-                    and not self._ack_waiter.cancelled()
-                ):
-                    with contextlib.suppress(Exception):
-                        self._ack_waiter.exception()
+                self._clear_waiters(self._ack_waiter)
                 self._ack_waiter = None
 
-    def _wrapped_callback(self, device: CentronicPlusDevice) -> None:
-        """Notify listener only if the device has finished initial discovery."""
-        if device.is_ready and self._device_callback:
-            self._device_callback(device)
+    async def _write_packet_logic(self, payload_hex: str) -> None:
+        """Write a framed packet and enforce the command gap."""
+        # Simple rate limiting: 100ms gap between commands
+        now = asyncio.get_running_loop().time()
+        delay = self._last_send_time + COMMAND_GAP_TIME - now
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+        packet = wrap_packet(payload_hex)
+        _LOGGER.debug(" --> USB %s", payload_hex or "(empty)")
+        if self._writer:
+            self._writer.write(packet)
+            await self._writer.drain()
+        self._last_send_time = asyncio.get_running_loop().time()
 
     async def _read_loop(self) -> None:  # noqa: PLR0912, PLR0915
         """Continuously read from serial, parsing packets and watching for ACKs."""
@@ -275,21 +331,6 @@ class BeckerClient:
                 self._handle_disconnect(exc)
                 break
 
-    def _handle_disconnect(self, exc: Exception | None) -> None:
-        """Handle cleanup when the connection is lost."""
-        self._connection_error = exc
-        # Fail any pending waiters immediately so they don't time out
-        for waiter in [
-            self._ack_waiter,
-            self._stick_info_waiter,
-            self._stick_fw_waiter,
-        ]:
-            if waiter and not waiter.done():
-                waiter.set_exception(exc or BeckerConnectionError("Disconnected"))
-
-        if self._on_disconnect:
-            self._on_disconnect(exc)
-
     def _handle_packet(self, packet_hex: str) -> None:
         """Route parsed data to device objects."""
         if not (data := parse_packet(packet_hex)):
@@ -338,6 +379,47 @@ class BeckerClient:
         except Exception:
             _LOGGER.exception("Unexpected error processing packet: %s", packet_hex)
 
+    def _wrapped_callback(self, device: CentronicPlusDevice) -> None:
+        """Notify listener only if the device has finished initial discovery."""
+        if device.is_ready and self._device_callback:
+            self._device_callback(device)
+
+    def _fail_waiters(self, exc: Exception) -> None:
+        """Fail all pending waiters with the provided exception."""
+        for waiter in [
+            self._ack_waiter,
+            self._stick_info_waiter,
+            self._stick_fw_waiter,
+        ]:
+            if waiter and not waiter.done():
+                waiter.set_exception(exc)
+
+    def _clear_waiters(self, *waiters: asyncio.Future[Any] | None) -> None:
+        """Consume exceptions to avoid 'Future exception was never retrieved'."""
+        for waiter in waiters:
+            if waiter and waiter.done() and not waiter.cancelled():
+                with contextlib.suppress(Exception):
+                    waiter.exception()
+
+    def _stop_background_tasks(self) -> None:
+        """Stop discovery, maintenance, and device-specific polling tasks."""
+        self.stop_monitoring()
+        for device in self.devices.values():
+            if device._poll_task:  # noqa: SLF001
+                device._poll_task.cancel()  # noqa: SLF001
+
+    def _handle_disconnect(self, exc: Exception) -> None:
+        """Handle cleanup when an unexpected connection error occurs."""
+        if self._is_closing:
+            return
+
+        self._connection_error = exc
+        self._fail_waiters(exc)
+        self._stop_background_tasks()
+
+        if self._on_disconnect:
+            self._on_disconnect(exc)
+
     def _trigger_expectation(self, mac_id: str | None) -> None:
         """Inform devices that an immediate response is expected."""
         if mac_id is None:
@@ -349,7 +431,7 @@ class BeckerClient:
     @property
     def connected(self) -> bool:
         """Return True if the client is currently connected to the USB stick."""
-        return self._writer is not None
+        return self._writer is not None and self._connection_error is None
 
     @property
     def all_devices_ready(self) -> bool:
@@ -379,54 +461,6 @@ class BeckerClient:
         payload = build_global_name_request()
         await self.send(payload)
         self._trigger_expectation(None)
-
-    async def initialize(self) -> None:
-        """Initialize the stick and fetch its MAC/install ID and firmware info."""
-        loop = asyncio.get_running_loop()
-        max_attempts = 3
-
-        try:
-            for attempt in range(max_attempts):
-                self._stick_info_waiter = loop.create_future()
-                self._stick_fw_waiter = loop.create_future()
-
-                try:
-                    # The device may emit initial empty responses and free-form text
-                    # before the first strictly framed packets arrive. Use a light
-                    # startup handshake without requiring a strict ACK for every frame.
-                    await self.send("", expect_ack=False)
-                    await self.send("", expect_ack=False)
-                    await self.send("", expect_ack=False)
-                    await self.send(build_stick_fw_request())
-                    await asyncio.wait_for(self._stick_fw_waiter, timeout=1.5)
-                    await self.send(build_stick_info_request())
-                    await asyncio.wait_for(self._stick_info_waiter, timeout=1.5)
-                except (TimeoutError, BeckerTimeoutError) as exc:
-                    if attempt == max_attempts - 1:
-                        msg = "Timed out waiting for stick info/firmware response"
-                        raise BeckerTimeoutError(msg) from exc
-
-                    _LOGGER.debug(
-                        "Stick initialization attempt %s/%s timed out; retrying",
-                        attempt + 1,
-                        max_attempts,
-                    )
-                    if self._stick_info_waiter and not self._stick_info_waiter.done():
-                        self._stick_info_waiter.cancel()
-                    if self._stick_fw_waiter and not self._stick_fw_waiter.done():
-                        self._stick_fw_waiter.cancel()
-                else:
-                    return
-        finally:
-            # Consume exceptions for waiters that were never awaited to prevent
-            # "Future exception was never retrieved" warnings if we disconnect
-            # early in the initialization sequence.
-            for waiter in [self._stick_info_waiter, self._stick_fw_waiter]:
-                if waiter and waiter.done() and not waiter.cancelled():
-                    with contextlib.suppress(Exception):
-                        waiter.exception()
-            self._stick_info_waiter = None
-            self._stick_fw_waiter = None
 
     async def start_monitoring(self, *, restart: bool) -> None:
         """Start discovery and the periodic maintenance loop."""

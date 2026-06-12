@@ -12,6 +12,7 @@ from pybeckerplus.constants import (
     StatusBit,
     StatusBitAux,
 )
+from pybeckerplus.exceptions import BeckerConnectionError
 from pybeckerplus.packet import (
     build_action_packet,
     build_get_name_packet,
@@ -196,6 +197,10 @@ class CentronicPlusDevice:
 
         except asyncio.CancelledError:
             pass
+        except BeckerConnectionError:
+            _LOGGER.debug(
+                "Device poll loop for %s stopped: Connection lost", self.mac_id
+            )
         except Exception:
             _LOGGER.exception("Error in device poll loop for %s", self.mac_id)
         finally:
