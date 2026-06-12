@@ -1,6 +1,6 @@
 """Becker Centronic Plus USB Python Library."""
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 from .client import BeckerClient
 from .constants import Action, StatusBit
