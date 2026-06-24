@@ -159,13 +159,10 @@ class BeckerClient:
                     # The device may emit initial empty responses and free-form text
                     # before the first strictly framed packets arrive. Use a light
                     # startup handshake without requiring a strict ACK for every frame.
-                    await self.send("", expect_ack=False)
-                    await self.send("", expect_ack=False)
-                    await self.send("", expect_ack=False)
-                    await self.send(build_stick_fw_request())
-                    await asyncio.wait_for(self._stick_fw_waiter, timeout=1.5)
                     await self.send(build_stick_info_request())
                     await asyncio.wait_for(self._stick_info_waiter, timeout=1.5)
+                    await self.send(build_stick_fw_request())
+                    await asyncio.wait_for(self._stick_fw_waiter, timeout=1.5)
                 except (TimeoutError, BeckerTimeoutError) as exc:
                     if attempt == max_attempts - 1:
                         msg = "Timed out waiting for stick info/firmware response"
@@ -180,10 +177,10 @@ class BeckerClient:
                         self._stick_info_waiter.cancel()
                     if self._stick_fw_waiter and not self._stick_fw_waiter.done():
                         self._stick_fw_waiter.cancel()
+                    # wait for stick to get ready in between retries
+                    await asyncio.sleep(3.0)
                 else:
                     return
-            # wait fo stick to get ready in between retries
-            await asyncio.sleep(3.0)
         finally:
             self._clear_waiters(self._stick_info_waiter, self._stick_fw_waiter)
             self._stick_info_waiter = None
@@ -523,9 +520,9 @@ class BeckerClient:
 
             # Phase 1: Initial Global Burst
             await self.send(build_global_name_request())
-            await asyncio.sleep(2.5)
+            await asyncio.sleep(3.0)
             await self.send(build_global_info_request(self.get_next_cnt()))
-            await asyncio.sleep(2.5)
+            await asyncio.sleep(3.0)
             await self.global_request_status()
             await asyncio.sleep(5.0)
             await sweep_all_not_ready()
