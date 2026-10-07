@@ -1,5 +1,4 @@
 # ruff: noqa: S101, D100, INP001, SLF001, PLR2004
-# ty:ignore[invalid-assignment]
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch

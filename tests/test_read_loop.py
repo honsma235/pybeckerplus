@@ -1,5 +1,5 @@
 # ruff: noqa: S101, D100, D102, D107, D205, D400, D401, D415, E501, SLF001, INP001, FBT001, TRY003, EM101, PLR2004
-# ty:ignore[invalid-assignment, unresolved-attribute]
+# ty:ignore[invalid-assignment]
 
 import asyncio
 import contextlib
