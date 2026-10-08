@@ -166,8 +166,14 @@ PATTERNS = {
         r"^07000126(?P<mac>.{16}).{14}52.{2}(?P<rssi>.{2})(?P<status>.{4})(?P<pos>.{4}).{32}$",
         re.IGNORECASE,
     ),
+    # 47-byte Info Frame (BLEN = 0x2B) - serial, firmware, and counter
     "info": re.compile(
         r"^0700012B(?P<mac>.{16}).{14}51.{18}(?P<sn>.{10}).{2}(?P<fw>.{6}).{10}(?P<cnt>.{4}).{4}$",
+        re.IGNORECASE,
+    ),
+    # 39-byte Info Frame (BLEN = 0x23) - serial and counter, NO firmware
+    "info_short": re.compile(
+        r"^07000123(?P<mac>.{16}).{14}51.{18}(?P<sn>.{10}).{2}(?P<cnt>.{4}).{4}$",
         re.IGNORECASE,
     ),
     "name": re.compile(
@@ -202,13 +208,20 @@ def parse_packet(raw_hex: str) -> dict[str, Any] | None:  # noqa: PLR0911
                 "rssi": int(match.group("rssi"), 16),
             }
 
-        if ptype == "info":
-            fw_bytes = hex_to_bytes(match.group("fw"))
+        if ptype in ("info", "info_short"):
+            groups = match.groupdict()
+
+            # Extract firmware only if matched by the regex pattern (e.g. 47-byte frame)
+            fw_str = None
+            if raw_fw := groups.get("fw"):
+                fw_bytes = hex_to_bytes(raw_fw)
+                fw_str = ".".join([f"{b:02}" for b in fw_bytes])
+
             return {
                 "type": "device",
-                "mac_id": match.group("mac").lower(),
-                "sn": match.group("sn"),
-                "fw": ".".join([f"{b:02}" for b in fw_bytes]),
+                "mac_id": groups["mac"].lower(),
+                "sn": groups["sn"],
+                "fw": fw_str,  # None for info_short
             }
 
         if ptype == "name":

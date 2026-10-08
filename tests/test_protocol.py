@@ -62,6 +62,19 @@ def test_parse_info_response() -> None:
     assert result["fw"] == "03.01.15"
 
 
+def test_parse_info_short_response() -> None:
+    """Test parsing device info response without firmware data."""
+    mac = "A0DC04FFFE123456"
+    sn = "0254123456"
+    cnt = "0001"
+    raw_hex = f"07000123{mac}{'0' * 14}51{'0' * 18}{sn}00{cnt}0000"
+    result = parse_packet(raw_hex)
+    assert result["type"] == "device"
+    assert result["mac_id"] == mac.lower()
+    assert result["sn"] == sn
+    assert result["fw"] is None
+
+
 def test_parse_parent_mac_response() -> None:
     """Test parsing parent MAC response."""
     mac = "A0DC04FFFE123456"
